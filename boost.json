@@ -1,23 +1,22 @@
 {
     "agents": [
-        "amp",
         "claude_code",
-        "codex",
-        "factory",
-        "grok_build",
-        "junie",
-        "opencode"
+        "codex"
     ],
     "cloud": false,
     "guidelines": true,
     "mcp": true,
     "nightwatch": false,
+    "packages": [
+        "livewire/blaze"
+    ],
     "sail": false,
     "skills": [
         "infer-conventions",
         "laravel-best-practices",
         "livewire-development",
         "pest-testing",
-        "tailwindcss-development"
+        "tailwindcss-development",
+        "blaze-optimize"
     ]
 }
