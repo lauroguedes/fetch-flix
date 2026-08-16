@@ -21,6 +21,16 @@ it('rejects an unauthenticated request in the contracted envelope', function () 
         ->assertExactJsonStructure(['status', 'code', 'message', 'retry_after', 'request_id']);
 });
 
+it('rejects an unauthenticated caller that did not ask for json', function () {
+    // Laravel's Authenticate middleware resolves route('login') for requests
+    // that do not look like JSON, and this application has none. The resulting
+    // RouteNotFoundException surfaced as a retryable 503, so a client holding a
+    // bad token would have retried a permanent failure forever.
+    $this->post('/api/v1/__test/guarded', [], ['Accept' => '*/*'])
+        ->assertStatus(403)
+        ->assertJsonPath('code', 'unauthorized');
+});
+
 it('rejects a garbage bearer token', function () {
     $this->withToken('not-a-real-token')
         ->postJson('/api/v1/__test/guarded')

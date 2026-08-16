@@ -101,9 +101,17 @@ return [
 
         'proxy' => env('YT_DLP_PROXY'),
 
-        // A stable, uncontroversial video used only to prove the extractor still
-        // works. Never returned to a client.
-        'selftest_url' => env('YT_DLP_SELFTEST_URL', 'https://www.youtube.com/watch?v=BaW_jenozKc'),
+        // The control video, used only to prove the extractor still works.
+        // Never returned to a client.
+        //
+        // "Me at the zoo": the first video ever uploaded to YouTube, 19s long,
+        // and about as unlikely to be deleted as anything on the platform.
+        // Stability is the entire requirement here. The previous choice,
+        // yt-dlp's own BaW_jenozKc test video, has since been removed, which
+        // made the self-test report a broken extractor permanently. A health
+        // check that cries wolf is worse than none, because it trains everyone
+        // to ignore it.
+        'selftest_url' => env('YT_DLP_SELFTEST_URL', 'https://www.youtube.com/watch?v=jNQXAC9IVRw'),
     ],
 
     /*

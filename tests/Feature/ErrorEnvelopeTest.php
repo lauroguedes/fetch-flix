@@ -2,6 +2,7 @@
 
 use App\Api\ErrorCode;
 use App\Api\Exceptions\ApiException;
+use Illuminate\Http\Exceptions\HttpResponseException;
 use Illuminate\Support\Facades\Route;
 
 /*
@@ -64,6 +65,20 @@ it('turns an unexpected exception into a retryable 503, never a 500', function (
             'code' => 'resolver_unavailable',
         ])
         ->assertJsonPath('retry_after', fn ($value) => is_int($value));
+});
+
+it('does not re-map a response that was already built', function () {
+    // Laravel carries rate-limiter and abort() responses as
+    // HttpResponseException. Treating one as an unhandled error discarded a
+    // correct 429 into a generic 503, which told the client to retry a
+    // permanent-shaped failure for the wrong reason.
+    Route::middleware('request-id')->post('/api/v1/__test/prebuilt', function () {
+        throw new HttpResponseException(response()->json(['status' => 'error', 'code' => 'rate_limited'], 429));
+    });
+
+    $this->postJson('/api/v1/__test/prebuilt')
+        ->assertStatus(429)
+        ->assertJsonPath('code', 'rate_limited');
 });
 
 it('renders validation failures in our envelope rather than laravel default', function () {

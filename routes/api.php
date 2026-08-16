@@ -1,7 +1,7 @@
 <?php
 
-use App\Api\RequestId;
 use App\Http\Controllers\Api\V1\DiscoverController;
+use App\Http\Controllers\Api\V1\HealthController;
 use App\Http\Controllers\Api\V1\ResolveController;
 use Illuminate\Support\Facades\Route;
 
@@ -22,20 +22,15 @@ Route::prefix('v1')->name('api.v1.')->middleware('request-id')->group(function (
     // Unauthenticated: this is an operational probe for monitoring, and it must
     // stay reachable when token issuance or the database is the thing that is
     // broken. It exposes no tenant data.
-    Route::get('/health', function () {
-        return response()->json([
-            'status' => 'ok',
-            'request_id' => RequestId::current(),
-        ]);
-    })->name('health');
+    Route::get('/health', HealthController::class)->name('health');
 
     Route::middleware(['auth:sanctum', 'tenant.active', 'usage'])->group(function () {
         Route::post('/resolve', ResolveController::class)
-            ->middleware('abilities:resolve')
+            ->middleware(['abilities:resolve', 'throttle:resolve'])
             ->name('resolve');
 
         Route::post('/discover', DiscoverController::class)
-            ->middleware('abilities:discover')
+            ->middleware(['abilities:discover', 'throttle:discover'])
             ->name('discover');
     });
 });
