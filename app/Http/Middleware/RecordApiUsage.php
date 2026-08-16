@@ -53,6 +53,9 @@ class RecordApiUsage
                 'tenant_id' => $tenant->id,
                 'endpoint' => $request->route()?->getName() ?? $request->path(),
                 'provider' => $this->tracker->provider(),
+                'client_platform' => $this->clientField($request, 'platform', 32),
+                'client_app_version' => $this->clientField($request, 'app_version', 32),
+                'client_api_version' => $this->clientField($request, 'api_version', 16),
                 'quota_units' => $this->tracker->quotaUnits(),
                 'cache_hit' => $this->tracker->wasCacheHit(),
                 'status_code' => $response->getStatusCode(),
@@ -65,6 +68,26 @@ class RecordApiUsage
             // The response has already gone out; all we can do is report.
             report($e);
         }
+    }
+
+    /**
+     * Read one field of the request's `client` block.
+     *
+     * Read straight from the request rather than from validated input, so a
+     * call that failed validation is still attributed to the app that sent it,
+     * which is exactly when knowing the app version is most useful. Because
+     * that means the value is untrusted, it is type-checked and truncated to
+     * the column width instead of being written as received.
+     */
+    private function clientField(Request $request, string $key, int $limit): ?string
+    {
+        $value = $request->input("client.{$key}");
+
+        if (! is_string($value) || $value === '') {
+            return null;
+        }
+
+        return mb_substr($value, 0, $limit);
     }
 
     private function errorCode(Response $response): ?string

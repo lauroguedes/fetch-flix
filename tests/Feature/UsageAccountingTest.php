@@ -82,3 +82,51 @@ it('does not record anything for an unauthenticated request', function () {
 
     expect(UsageRecord::query()->count())->toBe(0);
 });
+
+it('records which consuming app made the call', function () {
+    app()->instance(YtDlpRunner::class, FakeYtDlpRunner::withFixture('standard'));
+
+    resolveAs(Tenant::factory()->create())->assertOk();
+
+    $record = UsageRecord::query()->firstOrFail();
+
+    // The question that actually comes up in an incident: is this every
+    // consumer, or one app version that shipped a bad build?
+    expect($record->client_platform)->toBe('ios')
+        ->and($record->client_app_version)->toBe('1.4.2')
+        ->and($record->client_api_version)->toBe('v1');
+});
+
+it('attributes a rejected request to the app that sent it', function () {
+    app()->instance(YtDlpRunner::class, FakeYtDlpRunner::withFixture('standard'));
+
+    // Read from the raw request rather than validated input, because a failing
+    // client is exactly when knowing its version matters most.
+    resolveAs(Tenant::factory()->create(), ['prefer' => 'adaptive'])->assertStatus(422);
+
+    $record = UsageRecord::query()->firstOrFail();
+
+    expect($record->status_code)->toBe(422)
+        ->and($record->error_code)->toBe('invalid_request')
+        ->and($record->client_platform)->toBe('ios');
+});
+
+it('truncates an oversized client value rather than failing the write', function () {
+    app()->instance(YtDlpRunner::class, FakeYtDlpRunner::withFixture('standard'));
+
+    resolveAs(Tenant::factory()->create(), [
+        'client' => ['platform' => str_repeat('x', 200), 'app_version' => '1', 'api_version' => 'v1'],
+    ])->assertStatus(422);
+
+    // The value is untrusted: an overlong field must not break accounting.
+    expect(mb_strlen((string) UsageRecord::query()->firstOrFail()->client_platform))->toBe(32);
+});
+
+it('leaves client columns null for an endpoint that sends no client block', function () {
+    config()->set('media.discovery.youtube_api_key', 'test-key');
+    YouTubeApiFake::fake([['id' => 'aaaaaaaaaaa']]);
+
+    discoverAs(Tenant::factory()->create())->assertOk();
+
+    expect(UsageRecord::query()->firstOrFail()->client_platform)->toBeNull();
+});

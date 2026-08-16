@@ -14,6 +14,9 @@ use Illuminate\Support\Carbon;
  * @property int $tenant_id
  * @property string $endpoint
  * @property string|null $provider
+ * @property string|null $client_platform
+ * @property string|null $client_app_version
+ * @property string|null $client_api_version
  * @property int $quota_units
  * @property bool $cache_hit
  * @property int $status_code
@@ -22,7 +25,9 @@ use Illuminate\Support\Carbon;
  * @property Carbon $created_at
  */
 #[Fillable([
-    'tenant_id', 'endpoint', 'provider', 'quota_units',
+    'tenant_id', 'endpoint', 'provider',
+    'client_platform', 'client_app_version', 'client_api_version',
+    'quota_units',
     'cache_hit', 'status_code', 'error_code', 'duration_ms', 'created_at',
 ])]
 class UsageRecord extends Model
