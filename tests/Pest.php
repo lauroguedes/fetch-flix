@@ -18,6 +18,11 @@ pest()->extend(TestCase::class)
     ->use(RefreshDatabase::class)
     ->in('Feature');
 
+// Unit tests get the container but no database. Media services read tuning
+// values (timeouts, expiry margins, header strip lists) from config/media.php,
+// so they need a booted application even when they touch nothing persistent.
+pest()->extend(TestCase::class)->in('Unit');
+
 /*
 |--------------------------------------------------------------------------
 | Expectations

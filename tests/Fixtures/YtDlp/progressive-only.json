@@ -1,0 +1,91 @@
+{
+  "id": "dQw4w9WgXcQ",
+  "title": "Rick Astley - Never Gonna Give You Up (Official Video) (4K Remaster)",
+  "uploader": "Rick Astley",
+  "channel": "Rick Astley",
+  "channel_id": "UCuAXFkgsw1L7xaCfnd5JJOw",
+  "duration": 213,
+  "thumbnail": "https://i.ytimg.com/vi/dQw4w9WgXcQ/maxresdefault.jpg",
+  "webpage_url": "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+  "extractor": "youtube",
+  "extractor_key": "Youtube",
+  "live_status": "not_live",
+  "availability": "public",
+  "age_limit": 0,
+  "formats": [
+    {
+      "format_id": "18",
+      "format_note": "360p",
+      "ext": "mp4",
+      "protocol": "https",
+      "acodec": "mp4a.40.2",
+      "vcodec": "avc1.42001E",
+      "url": "https://rr2---sn-8vq54voxhau-ha5e.googlevideo.com/videoplayback?expire=2051222400&ei=EciBasbaB8igvdIPgrXp-Q0&ip=77.25.137.196&id=o-AEhd_aEQaaRsuqmtRfN_IPFvAz6nzatE4gliQqtIY8nO&itag=18&source=youtube&requiressl=yes&xpc=EgVo2aDSNQ%3D%3D&cps=1075&met=1786890257%2C&mh=7c&mm=18%2C29&mn=sn-8vq54voxhau-ha5e%2Csn-hpa7zns6&ms=aub%2Crdu&mv=m&mvi=2&pcm2cms=yes&pl=22&rms=aub%2Caub&initcwndbps=1277500&bui=AR3QkAnGcZvXcYXpkgmX0Zw33MjE2k7W7MHP-w8FUSQ3mwiedQxp-8pHPCPcs-uHW23Q7c9bBP7Fl3PP&spc=KBGBclObsL8hrAawYZIh2lawXQHyzFpIvsAn6H10cWZCoxCgF7D2QSVyag&vprv=1&svpuc=1&mime=video%2Fmp4&rqh=1&cnr=14&ratebypass=yes&dur=213.089&lmt=1766960953317159&mt=1786889804&fvip=2&fexp=51565115%2C51946837%2C52089683&c=ANDROID_VR&txp=5538534&sparams=expire%2Cei%2Cip%2Cid%2Citag%2Csource%2Crequiressl%2Cxpc%2Cbui%2Cspc%2Cvprv%2Csvpuc%2Cmime%2Crqh%2Ccnr%2Cratebypass%2Cdur%2Clmt&sig=AE0s2JYwRAIgNv8AmVTXn3rvWYyGEUG9tBMx8ETmpq7_82Gut5my4FcCIFlP3oOM4IFJ5wBka4PTMJxhB0exbCzOTykIA2OrUCOF&lsparams=cps%2Cmet%2Cmh%2Cmm%2Cmn%2Cms%2Cmv%2Cmvi%2Cpcm2cms%2Cpl%2Crms%2Cinitcwndbps&lsig=APaTxxMwRQIhALP4MYn3dqWksKt5nMarZclkcjAq70oTNxsr7POcqaxoAiBYhUurqUuZqjAdeekT3VZFrzdvGyVnLJYFfmpNfXXJBA%3D%3D",
+      "width": 640,
+      "height": 360,
+      "fps": 25,
+      "tbr": 444.226,
+      "abr": null,
+      "filesize": null,
+      "filesize_approx": 11832459,
+      "resolution": "640x360",
+      "language": "en",
+      "http_headers": {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "en-us,en;q=0.5",
+        "Sec-Fetch-Mode": "navigate"
+      }
+    },
+    {
+      "format_id": "140",
+      "format_note": "medium",
+      "ext": "m4a",
+      "protocol": "https",
+      "acodec": "mp4a.40.2",
+      "vcodec": "none",
+      "url": "https://rr2---sn-8vq54voxhau-ha5e.googlevideo.com/videoplayback?expire=2051222400&ei=EciBasbaB8igvdIPgrXp-Q0&ip=77.25.137.196&id=o-AEhd_aEQaaRsuqmtRfN_IPFvAz6nzatE4gliQqtIY8nO&itag=140&source=youtube&requiressl=yes&xpc=EgVo2aDSNQ%3D%3D&cps=1075&met=1786890257%2C&mh=7c&mm=18%2C29&mn=sn-8vq54voxhau-ha5e%2Csn-hpa7zns6&ms=aub%2Crdu&mv=m&mvi=2&pcm2cms=yes&pl=22&rms=aub%2Caub&initcwndbps=1277500&bui=AR3QkAntPjscH5uwe4ywZdLe2XpbObvPLPoAjTaAbtj_eZhZrXFJgC1QSiMkfFDY_56iqmmSG8Doiu9C&spc=KBGBcnmSiroTpASISZNj4n6tHwSY0lpIjsTP62V9E3bLuhKIHA&vprv=1&svpuc=1&mime=audio%2Fmp4&rqh=1&gir=yes&clen=3449447&dur=213.089&lmt=1766955925572207&mt=1786889804&fvip=2&keepalive=yes&fexp=51565115%2C51946837%2C52089683&c=ANDROID_VR&txp=5532534&sparams=expire%2Cei%2Cip%2Cid%2Citag%2Csource%2Crequiressl%2Cxpc%2Cbui%2Cspc%2Cvprv%2Csvpuc%2Cmime%2Crqh%2Cgir%2Cclen%2Cdur%2Clmt&sig=AE0s2JYwRAIgfJCWk099RXgLRBNSxyxOYFxOhrDTHtnBSIMrBmFhQWgCIAK_a_RkX_u8UmkRbL4jER68laXVG66CMiU_1wVMXum-&lsparams=cps%2Cmet%2Cmh%2Cmm%2Cmn%2Cms%2Cmv%2Cmvi%2Cpcm2cms%2Cpl%2Crms%2Cinitcwndbps&lsig=APaTxxMwRQIhALP4MYn3dqWksKt5nMarZclkcjAq70oTNxsr7POcqaxoAiBYhUurqUuZqjAdeekT3VZFrzdvGyVnLJYFfmpNfXXJBA%3D%3D",
+      "width": null,
+      "height": null,
+      "fps": null,
+      "tbr": 129.502,
+      "abr": 129.502,
+      "filesize": 3449447,
+      "filesize_approx": 3449431,
+      "resolution": "audio only",
+      "language": "en",
+      "http_headers": {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "en-us,en;q=0.5",
+        "Sec-Fetch-Mode": "navigate"
+      },
+      "container": "m4a_dash"
+    },
+    {
+      "format_id": "137",
+      "format_note": "1080p",
+      "ext": "mp4",
+      "protocol": "https",
+      "acodec": "none",
+      "vcodec": "avc1.640028",
+      "url": "https://rr2---sn-8vq54voxhau-ha5e.googlevideo.com/videoplayback?expire=2051222400&ei=EciBasbaB8igvdIPgrXp-Q0&ip=77.25.137.196&id=o-AEhd_aEQaaRsuqmtRfN_IPFvAz6nzatE4gliQqtIY8nO&itag=137&source=youtube&requiressl=yes&xpc=EgVo2aDSNQ%3D%3D&cps=1075&met=1786890257%2C&mh=7c&mm=18%2C29&mn=sn-8vq54voxhau-ha5e%2Csn-hpa7zns6&ms=aub%2Crdu&mv=m&mvi=2&pcm2cms=yes&pl=22&rms=aub%2Caub&initcwndbps=1277500&bui=AR3QkAntPjscH5uwe4ywZdLe2XpbObvPLPoAjTaAbtj_eZhZrXFJgC1QSiMkfFDY_56iqmmSG8Doiu9C&spc=KBGBcnmSiroTpASISZNj4n6tHwSY0lpIjsTP62V9E3bLuhKIHA&vprv=1&svpuc=1&mime=video%2Fmp4&rqh=1&gir=yes&clen=80911999&dur=213.040&lmt=1766957926174250&mt=1786889804&fvip=2&keepalive=yes&fexp=51565115%2C51946837%2C52089683&c=ANDROID_VR&txp=5532534&sparams=expire%2Cei%2Cip%2Cid%2Citag%2Csource%2Crequiressl%2Cxpc%2Cbui%2Cspc%2Cvprv%2Csvpuc%2Cmime%2Crqh%2Cgir%2Cclen%2Cdur%2Clmt&sig=AE0s2JYwRQIgQni57zOYHxsQkncIOu-HAO_DfgAU6JSwr82o6YxTI0MCIQDGVDxWvsYPm7XlkP8-b6nUrDIh5JmW2x-g2jFgvT5bjA%3D%3D&lsparams=cps%2Cmet%2Cmh%2Cmm%2Cmn%2Cms%2Cmv%2Cmvi%2Cpcm2cms%2Cpl%2Crms%2Cinitcwndbps&lsig=APaTxxMwRQIhALP4MYn3dqWksKt5nMarZclkcjAq70oTNxsr7POcqaxoAiBYhUurqUuZqjAdeekT3VZFrzdvGyVnLJYFfmpNfXXJBA%3D%3D",
+      "width": 1920,
+      "height": 1080,
+      "fps": 25,
+      "tbr": 3038.377,
+      "abr": 0,
+      "filesize": 80911999,
+      "filesize_approx": 80911979,
+      "resolution": "1920x1080",
+      "language": null,
+      "http_headers": {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "en-us,en;q=0.5",
+        "Sec-Fetch-Mode": "navigate"
+      },
+      "container": "mp4_dash"
+    }
+  ]
+}

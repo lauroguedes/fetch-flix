@@ -1,5 +1,6 @@
 <?php
 
+use App\Models\Tenant;
 use App\Models\User;
 
 return [
@@ -42,6 +43,12 @@ return [
             'driver' => 'session',
             'provider' => 'users',
         ],
+
+        // The API surface. Consumers are Tenants, not Users.
+        'sanctum' => [
+            'driver' => 'sanctum',
+            'provider' => 'tenants',
+        ],
     ],
 
     /*
@@ -65,6 +72,11 @@ return [
         'users' => [
             'driver' => 'eloquent',
             'model' => env('AUTH_MODEL', User::class),
+        ],
+
+        'tenants' => [
+            'driver' => 'eloquent',
+            'model' => Tenant::class,
         ],
 
         // 'users' => [
