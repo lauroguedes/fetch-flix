@@ -1,6 +1,7 @@
 <?php
 
 use App\Api\RequestId;
+use App\Http\Controllers\Api\V1\DiscoverController;
 use App\Http\Controllers\Api\V1\ResolveController;
 use Illuminate\Support\Facades\Route;
 
@@ -28,12 +29,13 @@ Route::prefix('v1')->name('api.v1.')->middleware('request-id')->group(function (
         ]);
     })->name('health');
 
-    Route::middleware(['auth:sanctum', 'tenant.active'])->group(function () {
+    Route::middleware(['auth:sanctum', 'tenant.active', 'usage'])->group(function () {
         Route::post('/resolve', ResolveController::class)
             ->middleware('abilities:resolve')
             ->name('resolve');
 
-        // Phase 3: Route::post('/discover', DiscoverController::class)
-        //              ->middleware('abilities:discover');
+        Route::post('/discover', DiscoverController::class)
+            ->middleware('abilities:discover')
+            ->name('discover');
     });
 });

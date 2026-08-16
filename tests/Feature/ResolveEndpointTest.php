@@ -13,6 +13,13 @@ use Tests\Support\FakeYtDlpRunner;
  */
 function resolveAs(Tenant $tenant, array $overrides = [], array $headers = []): TestResponse
 {
+    // Laravel's auth guards cache the resolved user, and a test keeps one
+    // container alive across many requests, so without this the second call in
+    // a test is still attributed to the first caller. Real requests get a fresh
+    // container (and Octane flushes guards), so this restores production
+    // behaviour rather than papering over a bug.
+    app('auth')->forgetGuards();
+
     $token = $tenant->createToken('test', [Tenant::ABILITY_RESOLVE])->plainTextToken;
 
     $payload = array_replace([

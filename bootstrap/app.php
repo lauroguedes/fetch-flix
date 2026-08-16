@@ -3,6 +3,7 @@
 use App\Api\Exceptions\ExceptionMapper;
 use App\Api\RequestId;
 use App\Http\Middleware\EnsureTenantActive;
+use App\Http\Middleware\RecordApiUsage;
 use App\Http\Middleware\ResolveRequestId;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
@@ -22,6 +23,7 @@ return Application::configure(basePath: dirname(__DIR__))
         $middleware->alias([
             'request-id' => ResolveRequestId::class,
             'tenant.active' => EnsureTenantActive::class,
+            'usage' => RecordApiUsage::class,
 
             // Token abilities act as endpoint scopes, so a discovery-only
             // consumer cannot spend resolver capacity.

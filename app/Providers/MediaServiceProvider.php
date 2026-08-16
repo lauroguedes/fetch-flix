@@ -2,6 +2,7 @@
 
 namespace App\Providers;
 
+use App\Api\UsageTracker;
 use App\Media\ProviderRegistry;
 use App\Media\YtDlp\ProcessYtDlpRunner;
 use App\Media\YtDlp\YtDlpRunner;
@@ -12,6 +13,10 @@ class MediaServiceProvider extends ServiceProvider
 {
     public function register(): void
     {
+        // One accumulator per request, shared by everything that knows what a
+        // call cost and by the middleware that records it.
+        $this->app->scoped(UsageTracker::class);
+
         // The seam that keeps the test suite off the network and leaves room to
         // swap in an HTTP-backed sidecar runner without touching callers.
         $this->app->bind(YtDlpRunner::class, ProcessYtDlpRunner::class);

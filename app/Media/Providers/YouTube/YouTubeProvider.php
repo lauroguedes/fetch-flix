@@ -3,6 +3,7 @@
 namespace App\Media\Providers\YouTube;
 
 use App\Api\Exceptions\ApiException;
+use App\Media\Contracts\DiscoversMedia;
 use App\Media\Contracts\ResolvesMedia;
 use App\Media\Data\MediaRequest;
 use App\Media\Data\ResolvedMedia;
@@ -14,11 +15,12 @@ use App\Media\YtDlp\YtDlpRunner;
 /**
  * YouTube resolution.
  *
- * Implements ResolvesMedia only for now. DiscoversMedia and ReportsDimensions
- * arrive in phases 3 and 4; keeping them separate means this class never has to
- * stub a capability it cannot yet honour.
+ * The only provider with a real metadata API behind it, so the only one that
+ * implements DiscoversMedia. ReportsDimensions arrives in phase 4; keeping the
+ * capabilities separate means this class never stubs something it cannot yet
+ * honour.
  */
-final class YouTubeProvider implements ResolvesMedia
+final class YouTubeProvider implements DiscoversMedia, ResolvesMedia
 {
     public function __construct(
         private readonly YtDlpRunner $runner,
@@ -30,6 +32,11 @@ final class YouTubeProvider implements ResolvesMedia
     public function slug(): string
     {
         return 'youtube';
+    }
+
+    public function supportsCategories(): bool
+    {
+        return true;
     }
 
     public function claims(string $url): bool
