@@ -1,0 +1,11 @@
+{
+    "mcpServers": {
+        "laravel-boost": {
+            "command": "/Users/lauroguedes/Library/Application Support/Herd/bin/php85",
+            "args": [
+                "/Users/lauroguedes/apps/fetch-flix/artisan",
+                "boost:mcp"
+            ]
+        }
+    }
+}
