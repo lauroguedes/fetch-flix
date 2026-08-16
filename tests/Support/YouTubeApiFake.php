@@ -19,6 +19,14 @@ final class YouTubeApiFake
     public static function fake(array $videos, ?string $nextPageToken = 'CAUQAA'): void
     {
         Http::fake([
+            // oEmbed costs no quota but is a real round trip, so it is stubbed
+            // explicitly rather than left to the catch-all. Portrait, as a
+            // genuine Short would report via the /shorts/ form.
+            'www.youtube.com/oembed*' => Http::response([
+                'width' => 113,
+                'height' => 200,
+            ]),
+
             'www.googleapis.com/youtube/v3/search*' => Http::response([
                 'nextPageToken' => $nextPageToken,
                 'items' => array_map(fn (array $v) => [
@@ -42,6 +50,20 @@ final class YouTubeApiFake
                 ], $videos),
             ]),
         ]);
+    }
+
+    /**
+     * Requests that actually cost quota.
+     *
+     * The cache tests care about this, not the raw HTTP count: oEmbed is free,
+     * and counting it would make an assertion about spend depend on something
+     * that does not spend.
+     */
+    public static function dataApiCalls(): int
+    {
+        return Http::recorded(
+            fn ($request) => str_contains($request->url(), 'googleapis.com')
+        )->count();
     }
 
     public static function fakeQuotaExhausted(): void

@@ -3,6 +3,8 @@
 namespace App\Providers;
 
 use App\Api\UsageTracker;
+use App\Media\Discovery\DimensionResolver;
+use App\Media\Discovery\YouTubeDimensionResolver;
 use App\Media\ProviderRegistry;
 use App\Media\YtDlp\ProcessYtDlpRunner;
 use App\Media\YtDlp\YtDlpRunner;
@@ -20,6 +22,10 @@ class MediaServiceProvider extends ServiceProvider
         // The seam that keeps the test suite off the network and leaves room to
         // swap in an HTTP-backed sidecar runner without touching callers.
         $this->app->bind(YtDlpRunner::class, ProcessYtDlpRunner::class);
+
+        // The base class is the terminal rung on its own; this puts the
+        // database and oEmbed lookups in front of it.
+        $this->app->bind(DimensionResolver::class, YouTubeDimensionResolver::class);
 
         $this->app->singleton(ProviderRegistry::class, function (Application $app) {
             // `enabled` is optional: a deployment may declare a provider and

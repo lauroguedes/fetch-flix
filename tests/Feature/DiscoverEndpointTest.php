@@ -74,7 +74,7 @@ it('spends the 100-unit search only once for repeated identical queries', functi
     // One search.list plus one videos.list. The cache is the feature: without
     // it, three requests would be 300 of a 10,000 daily allowance shared by
     // every consumer of this service.
-    Http::assertSentCount(2);
+    expect(YouTubeApiFake::dataApiCalls())->toBe(2);
 });
 
 it('treats differently-spaced queries as the same cache entry', function () {
@@ -83,7 +83,7 @@ it('treats differently-spaced queries as the same cache entry', function () {
     discoverAs(Tenant::factory()->create(), ['query' => 'cats jumping'])->assertOk();
     discoverAs(Tenant::factory()->create(), ['query' => '  CATS   Jumping  '])->assertOk();
 
-    Http::assertSentCount(2);
+    expect(YouTubeApiFake::dataApiCalls())->toBe(2);
 });
 
 it('serves every duration variant from one cached page', function () {
@@ -101,7 +101,7 @@ it('serves every duration variant from one cached page', function () {
         ->and($narrow->json('videos'))->toHaveCount(1)
         ->and($narrow->json('videos.0.id'))->toBe('aaaaaaaaaaa');
 
-    Http::assertSentCount(2);
+    expect(YouTubeApiFake::dataApiCalls())->toBe(2);
 });
 
 it('survives a redis flush without spending quota again', function () {
@@ -116,7 +116,7 @@ it('survives a redis flush without spending quota again', function () {
 
     discoverAs(Tenant::factory()->create())->assertOk();
 
-    Http::assertSentCount(2);
+    expect(YouTubeApiFake::dataApiCalls())->toBe(2);
 });
 
 it('distinguishes tenant quota exhaustion from a broken service', function () {
@@ -218,5 +218,5 @@ it('keeps separate cache entries per page token', function () {
     discoverAs(Tenant::factory()->create(), ['page_token' => 'CAUQAA'])->assertOk();
 
     // Page two is a different result set and must not be served page one.
-    Http::assertSentCount(4);
+    expect(YouTubeApiFake::dataApiCalls())->toBe(4);
 });
