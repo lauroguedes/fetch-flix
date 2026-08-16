@@ -12,6 +12,18 @@
             <directory>tests/Feature</directory>
         </testsuite>
     </testsuites>
+    <!--
+        Tests tagged `network` hit YouTube for real. They exist to prove the
+        extractor still works against the live site, which fixtures cannot do,
+        but they must never run in CI: they are slow, rate limited, and would
+        fail for reasons unrelated to the change under test.
+        Run them deliberately by passing the group flag to `php artisan test`.
+    -->
+    <groups>
+        <exclude>
+            <group>network</group>
+        </exclude>
+    </groups>
     <source>
         <include>
             <directory>app</directory>
