@@ -185,8 +185,28 @@ return [
     */
 
     'dimensions' => [
-        // oEmbed costs zero API quota. It must be queried with the /shorts/ URL
-        // form for vertical video: the /watch?v= form reports 16:9 regardless.
+        // oEmbed costs zero API quota and is the only free source of aspect
+        // ratio. Verified against live YouTube on 2026-08-16:
+        //
+        //   9FDVvWR91ww  /watch?v=  -> 200x113 (1.77)
+        //   9FDVvWR91ww  /shorts/   -> 113x200 (0.565)
+        //   OzK3PNF0WqU  /watch?v=  -> 200x113 (1.77)
+        //   OzK3PNF0WqU  /shorts/   -> 200x113 (1.77)
+        //
+        // Two conclusions, both load-bearing:
+        //
+        // 1. The /shorts/ form is required. The /watch form reports 16:9 even
+        //    for genuinely vertical video, so querying it alone would render
+        //    every portrait clip into a landscape box.
+        // 2. The /shorts/ form does NOT force portrait. It returned 16:9 for
+        //    OzK3PNF0WqU, which is a landscape video that merely surfaced in a
+        //    shorts search. oEmbed is telling the truth in both cases, so its
+        //    answer must be trusted as returned. A "short duration therefore
+        //    9:16" heuristic may only run when oEmbed fails outright, never as
+        //    an override, or it will corrupt landscape videos in a short feed.
+        //
+        // Note the returned size is the embed player box, not the encode, so
+        // only the ratio is meaningful; it is snapped to a nominal encode.
         'oembed_endpoint' => 'https://www.youtube.com/oembed',
         'oembed_timeout' => 2,
 
