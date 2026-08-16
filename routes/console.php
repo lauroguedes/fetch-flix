@@ -27,6 +27,14 @@ Schedule::command('yt-dlp:selftest --quiet-success')
     ->hourly()
     ->withoutOverlapping();
 
+// Stay current with YouTube's weekly changes, but only keep a build that
+// passes the self-test. Running nightly is safe precisely because of that
+// verification step.
+Schedule::command('yt-dlp:update')
+    ->dailyAt('03:20')
+    ->withoutOverlapping()
+    ->runInBackground();
+
 // Category feeds are the predictable part of discovery, so they are paid for
 // off-peak from a reserved budget rather than by whoever hits a cold cache.
 Schedule::command('discover:warm')

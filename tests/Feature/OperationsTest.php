@@ -178,3 +178,21 @@ it('prunes usage records past their retention window', function () {
     // Retention is enforced, not left to somebody remembering.
     expect(UsageRecord::query()->count())->toBe(1);
 });
+
+it('fails loudly when yt-dlp cannot be found rather than reporting success', function () {
+    config()->set('media.yt_dlp.binary', '/nonexistent/yt-dlp');
+
+    // A maintenance command that silently no-ops leaves the extractor stale
+    // while the schedule reports everything is fine.
+    $this->artisan('yt-dlp:update')->assertFailed();
+});
+
+it('reports a self-test failure when the control video cannot be resolved', function () {
+    app()->instance(YtDlpRunner::class, FakeYtDlpRunner::failingWith('ERROR: Video unavailable'));
+
+    // The control video being gone is itself a broken health check: it must not
+    // be mistaken for a healthy extractor.
+    $this->artisan('yt-dlp:selftest')->assertFailed();
+
+    expect(ExtractorHealth::query()->firstOrFail()->failure_code)->toBe('unresolvable');
+});
