@@ -11,6 +11,8 @@ use App\Media\Events\ExtractorBroken;
 use App\Media\Listeners\ReportBotDetection;
 use App\Media\Listeners\ReportExtractorBroken;
 use App\Media\ProviderRegistry;
+use App\Media\Storage\MediaDownloader;
+use App\Media\Storage\YtDlpMediaDownloader;
 use App\Media\YtDlp\ProcessYtDlpRunner;
 use App\Media\YtDlp\YtDlpRunner;
 use App\Models\Tenant;
@@ -32,6 +34,11 @@ class MediaServiceProvider extends ServiceProvider
         // The seam that keeps the test suite off the network and leaves room to
         // swap in an HTTP-backed sidecar runner without touching callers.
         $this->app->bind(YtDlpRunner::class, ProcessYtDlpRunner::class);
+
+        // The transfer seam, separate from the extraction one: downloads run on
+        // a queue with a deadline in minutes, extraction on the request with a
+        // deadline in seconds.
+        $this->app->bind(MediaDownloader::class, YtDlpMediaDownloader::class);
 
         // The base class is the terminal rung on its own; this puts the
         // database and oEmbed lookups in front of it.

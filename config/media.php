@@ -84,6 +84,11 @@ return [
         'wait_ms' => (int) env('MEDIA_STREAM_WAIT_MS', 20000),
         'poll_ms' => (int) env('MEDIA_STREAM_POLL_MS', 250),
 
+        // Downloads land here first, on local disk, and are streamed to the
+        // media disk afterwards. Needs room for the largest concurrent set of
+        // downloads, not for the library.
+        'tmp_dir' => env('MEDIA_TMP_DIR', storage_path('app/media-tmp')),
+
         // Storage costs money every month, which handing back somebody else's
         // URL did not. An asset nobody has asked for in this many days is
         // collected by media:prune.
