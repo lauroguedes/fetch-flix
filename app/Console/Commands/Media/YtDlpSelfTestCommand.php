@@ -5,6 +5,9 @@ namespace App\Console\Commands\Media;
 use App\Api\Exceptions\ApiException;
 use App\Media\Data\MediaRequest;
 use App\Media\ProviderRegistry;
+use App\Media\Storage\MediaDownloader;
+use App\Media\YtDlp\YtDlpErrorClassifier;
+use App\Media\YtDlp\YtDlpFailed;
 use App\Models\ExtractorHealth;
 use Illuminate\Console\Command;
 use Symfony\Component\Process\Process;
@@ -16,6 +19,14 @@ use Throwable;
  * yt-dlp breaks when YouTube changes, often weekly. Without this, the first
  * report of a broken extractor comes from a user, by which time every resolve
  * has been failing for hours.
+ *
+ * It transfers the file as well as resolving it, because the two fail
+ * independently and the interesting failure is the one where they disagree.
+ * Measured on 2026-08-22: with yt-dlp's default player client, extraction
+ * succeeded and returned a well-formed URL that answered 403 to every
+ * download. A resolve-only check calls that healthy. The control video is
+ * nineteen seconds long, so proving the whole path costs well under a
+ * megabyte an hour.
  */
 class YtDlpSelfTestCommand extends Command
 {
@@ -23,8 +34,11 @@ class YtDlpSelfTestCommand extends Command
 
     protected $description = 'Resolve a known-good video and record extractor health';
 
-    public function handle(ProviderRegistry $registry): int
-    {
+    public function handle(
+        ProviderRegistry $registry,
+        MediaDownloader $downloader,
+        YtDlpErrorClassifier $classifier,
+    ): int {
         $url = (string) config('media.yt_dlp.selftest_url');
         $startedAt = hrtime(true);
 
@@ -38,8 +52,23 @@ class YtDlpSelfTestCommand extends Command
 
             // A resolve that returns no usable URL is a failure even though
             // nothing threw.
-            $ok = $resolved->media->url !== '' && ! $resolved->media->isExpired();
-            $notes = $ok ? null : 'Resolved but produced no usable stream URL.';
+            $healthy = $resolved->media->url !== '' && ! $resolved->media->isExpired();
+
+            if (! $healthy) {
+                $notes = 'Resolved but produced no usable stream URL.';
+            } elseif ($resolved->media->formatId !== null) {
+                $healthy = $this->transfer($downloader, $classifier, $url, $resolved->media->formatId) > 0;
+
+                if (! $healthy) {
+                    $notes = 'Resolved successfully but the transfer produced no bytes.';
+                }
+            }
+
+            // Assigned last, and only here, so anything thrown above leaves the
+            // check failed. Setting it before the transfer made a download that
+            // 403s report as healthy, which is the exact failure this command
+            // was extended to catch.
+            $ok = $healthy;
         } catch (ApiException $e) {
             $failureCode = $e->errorCode->value;
             $notes = $e->getMessage();
@@ -71,6 +100,34 @@ class YtDlpSelfTestCommand extends Command
         $this->components->error("Extractor unhealthy: {$failureCode} - {$notes}");
 
         return self::FAILURE;
+    }
+
+    /**
+     * Download the control video and throw the bytes away.
+     *
+     * @throws ApiException on a transfer failure, so it lands on the health row
+     *                      with the same code a client would have seen
+     */
+    private function transfer(
+        MediaDownloader $downloader,
+        YtDlpErrorClassifier $classifier,
+        string $url,
+        string $formatId,
+    ): int {
+        $destination = rtrim((string) config('media.storage.tmp_dir', storage_path('app/media-tmp')), '/')
+            .'/selftest-'.sha1($url).'.tmp';
+
+        try {
+            return $downloader->download($url, $formatId, $destination, 64 * 1024 * 1024)->bytes;
+        } catch (YtDlpFailed $e) {
+            // Classified rather than raw, so the health row carries the same
+            // code a client would have seen instead of "unexpected".
+            throw $classifier->classify($e);
+        } finally {
+            if (is_file($destination)) {
+                unlink($destination);
+            }
+        }
     }
 
     /**

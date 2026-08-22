@@ -1,12 +1,19 @@
 <?php
 
+use App\Media\Data\AssetStatus;
 use App\Media\Data\MediaRequest;
 use App\Media\Data\VideoCard;
 use App\Media\Discovery\DimensionResolver;
+use App\Media\Jobs\DownloadMediaAsset;
 use App\Media\ProviderRegistry;
+use App\Media\Storage\AssetKey;
+use App\Media\Storage\MediaAssetRepository;
+use App\Media\Storage\MediaDownloader;
+use App\Media\Storage\YtDlpMediaDownloader;
 use App\Media\YtDlp\ProcessYtDlpRunner;
 use App\Media\YtDlp\StreamExpiry;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Storage;
 
 /*
 | These hit YouTube for real and are excluded from the default suite.
@@ -112,3 +119,52 @@ it('reads real aspect ratios from live oembed', function () {
     expect($out[0]->width)->toBe(1080)->and($out[0]->height)->toBe(1920)
         ->and($out[1]->width)->toBe(1280)->and($out[1]->height)->toBe(720);
 });
+
+it('downloads and stores the control video end to end', function () {
+    // The assertion the whole storage change rests on, and the one no fixture
+    // can make: that the pinned player clients still produce a format the
+    // binary can actually transfer.
+    //
+    // Verified 2026-08-22 that this fails without the pin. With yt-dlp's own
+    // default client, extraction succeeds and returns a well-formed URL that
+    // answers 403 to every download.
+    Storage::fake('media');
+    config()->set('media.storage.disk', 'media');
+
+    // The base test case substitutes the downloader so the ordinary suite
+    // never transfers anything. This group exists precisely to transfer.
+    app()->instance(MediaDownloader::class, new YtDlpMediaDownloader);
+
+    $url = 'https://www.youtube.com/watch?v=jNQXAC9IVRw';
+    $provider = app(ProviderRegistry::class)->resolverFor($url);
+    $resolved = $provider->resolve(new MediaRequest($url, maxHeight: 360));
+
+    $key = AssetKey::for('youtube', $resolved->id, 360, false);
+
+    $asset = app(MediaAssetRepository::class)->register($key, [
+        'provider' => 'youtube',
+        'provider_video_id' => $resolved->id,
+        'max_height' => 360,
+        'audio_only' => false,
+        'format_id' => $resolved->media->formatId,
+        'container' => $resolved->media->container,
+        'mime_type' => $resolved->media->mimeType,
+        'width' => $resolved->media->width,
+        'height' => $resolved->media->height,
+        'duration_ms' => $resolved->durationMs,
+        'title' => $resolved->title,
+    ]);
+
+    app()->call([
+        new DownloadMediaAsset($asset->asset_key, $url, (string) $resolved->media->formatId),
+        'handle',
+    ]);
+
+    $stored = $asset->fresh();
+
+    expect($stored->status)->toBe(AssetStatus::Stored)
+        ->and($stored->bytes)->toBeGreaterThan(100_000)
+        ->and($stored->error_code)->toBeNull();
+
+    Storage::disk('media')->assertExists($stored->path);
+})->group('network');

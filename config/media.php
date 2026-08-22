@@ -157,19 +157,31 @@ return [
         // shared, writable, persistent path.
         'cache_dir' => env('YT_DLP_CACHE_DIR', storage_path('app/yt-dlp-cache')),
 
-        // Empty by default, so yt-dlp picks its own clients.
+        // Pinned, because the unpinned default does not currently work.
         //
-        // Overriding this is a documented mitigation for datacenter bot checks,
-        // but it is NOT free and must never be enabled blind. Verified against
-        // yt-dlp 2026.07.04: `player_client=tv,web_embedded` makes YouTube drop
-        // the progressive https formats entirely ("Some tv client https formats
-        // have been skipped as they are missing a URL. YouTube may have enabled
-        // the SABR-only streaming experiment"), and whatever URL survives
-        // returns 403 on download. Extraction still "succeeds", so the failure
-        // surfaces to the user as a broken download rather than a resolve error.
+        // This value is volatile by nature and must never be changed blind.
+        // Measured against yt-dlp 2026.07.04 on 2026-08-22, downloading the
+        // control video and dQw4w9WgXcQ:
         //
-        // Re-validate with the `network` test group before shipping any value here.
-        'player_clients' => env('YT_DLP_PLAYER_CLIENTS'),
+        //   (default -> android_vr)  extraction OK, download 403
+        //   web, web_safari, ios     "No video formats found"
+        //   tv, web_embedded         progressive https formats dropped entirely
+        //                            (SABR-only), whatever survives 403s
+        //   mweb                     itag 18 progressive, downloads
+        //   tv_simply                itag 18 progressive, downloads
+        //
+        // Two clients rather than one so a single client breaking degrades to
+        // the other instead of to an outage.
+        //
+        // The failure mode this guards against is nastier than a broken
+        // extractor: with android_vr, extraction *succeeds* and only the
+        // transfer 403s. Before the service stored its own media that surfaced
+        // as a mysterious client-side failure; now it surfaces as an asset
+        // stuck in `failed`. Either way a resolve-only health check would call
+        // it healthy, which is why yt-dlp:selftest also performs a transfer.
+        //
+        // Re-validate with the `network` test group before changing this.
+        'player_clients' => env('YT_DLP_PLAYER_CLIENTS', 'mweb,tv_simply'),
 
         'proxy' => env('YT_DLP_PROXY'),
 

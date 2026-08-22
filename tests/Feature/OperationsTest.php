@@ -3,6 +3,7 @@
 use App\Media\Events\BotDetected;
 use App\Media\Listeners\ReportBotDetection;
 use App\Media\Listeners\ReportExtractorBroken;
+use App\Media\Storage\MediaDownloader;
 use App\Media\YtDlp\YtDlpErrorClassifier;
 use App\Media\YtDlp\YtDlpFailed;
 use App\Media\YtDlp\YtDlpRunner;
@@ -12,6 +13,7 @@ use App\Models\Tenant;
 use App\Models\UsageRecord;
 use App\Models\VideoCategory;
 use Illuminate\Support\Facades\Http;
+use Tests\Support\FakeMediaDownloader;
 use Tests\Support\FakeYtDlpRunner;
 use Tests\Support\YouTubeApiFake;
 
@@ -85,6 +87,29 @@ it('records a failing self-test and exits non-zero so a scheduler notices', func
 
     expect($health->ok)->toBeFalse()
         ->and($health->failure_code)->toBe('resolver_unavailable');
+});
+
+it('fails the self-test when extraction works but the transfer does not', function () {
+    // Measured against live YouTube on 2026-08-22: with yt-dlp's default player
+    // client, extraction succeeded and returned a well-formed URL that answered
+    // 403 to every download. A resolve-only check calls that healthy, and under
+    // storage delivery it is the failure that actually happens.
+    app()->instance(YtDlpRunner::class, FakeYtDlpRunner::withFixture('standard'));
+    app()->instance(
+        MediaDownloader::class,
+        FakeMediaDownloader::failingWith('ERROR: unable to download video data: HTTP Error 403: Forbidden')
+    );
+
+    $this->artisan('yt-dlp:selftest')->assertFailed();
+
+    expect(ExtractorHealth::query()->firstOrFail()->ok)->toBeFalse();
+});
+
+it('fails the self-test when the transfer produces nothing', function () {
+    app()->instance(YtDlpRunner::class, FakeYtDlpRunner::withFixture('standard'));
+    app()->instance(MediaDownloader::class, FakeMediaDownloader::writing(''));
+
+    $this->artisan('yt-dlp:selftest')->assertFailed();
 });
 
 it('enforces the per-tenant resolve rate limit in our error envelope', function () {

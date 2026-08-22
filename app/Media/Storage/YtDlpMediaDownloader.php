@@ -117,6 +117,10 @@ final class YtDlpMediaDownloader implements MediaDownloader
             '--no-playlist',
             '--no-warnings',
 
+            // Progress bars are written as carriage-return updates and would
+            // fill the process buffer with thousands of redundant lines.
+            '--no-progress',
+
             '--max-filesize', (string) $maxBytes,
 
             // Generous compared to extraction: this is a transfer on a queue,
