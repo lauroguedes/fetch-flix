@@ -1,0 +1,79 @@
+# Orca worktree hooks.
+#
+# Every worktree of this repo gets its own Laravel Herd site over HTTPS, and
+# loses it again when the worktree is archived.
+#
+# This is not a convenience. The service issues signed download URLs built from
+# APP_URL, and a signature is bound to the host it was minted for, so a worktree
+# without its own stable origin either cannot hand out working URLs or hands out
+# ones pointing at whatever site was linked last. Per-worktree domains also let
+# two branches run side by side without fighting over a port.
+#
+# HTTPS specifically, because the iOS client refuses plain HTTP under App
+# Transport Security. Testing against http:// proves something the real client
+# can never do.
+#
+# Orca ignores this file until the repo's hook command source policy allows
+# shared hooks. The desktop app prompts once to approve it; until then only the
+# locally configured scripts run.
+
+scripts:
+  # Runs when a worktree is created.
+  setup: |
+    set -euo pipefail
+    export PATH="$HOME/Library/Application Support/Herd/bin:$PATH"
+
+    if ! command -v herd >/dev/null 2>&1; then
+      echo "Herd CLI not found; skipping site setup." >&2
+      exit 0
+    fi
+
+    # Derived from the main checkout plus this worktree's directory, so the name
+    # is stable across runs and cannot collide with a worktree of the same name
+    # in another project.
+    main_repo="$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)")"
+    if [ "$PWD" = "$main_repo" ]; then
+      # The main checkout is not a worktree of anything; naming it
+      # fetch-flix-fetch-flix would be both wrong and confusing.
+      site="$(basename "$main_repo")"
+    else
+      site="$(basename "$main_repo")-$(basename "$PWD")"
+    fi
+    site="$(printf '%s' "$site" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9-]/-/g; s/--*/-/g; s/^-//; s/-$//')"
+
+    # herd --update-env rewrites APP_URL, so there has to be a file to rewrite.
+    if [ ! -f .env ] && [ -f .env.example ]; then
+      cp .env.example .env
+      php artisan key:generate --ansi
+    fi
+
+    herd link "$site" --secure --update-env
+
+    php artisan config:clear >/dev/null 2>&1 || true
+
+    echo "Worktree served at https://${site}.test"
+
+  # Runs when a worktree is archived.
+  archive: |
+    set -uo pipefail
+    export PATH="$HOME/Library/Application Support/Herd/bin:$PATH"
+
+    command -v herd >/dev/null 2>&1 || exit 0
+
+    main_repo="$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)")"
+    if [ "$PWD" = "$main_repo" ]; then
+      # The main checkout is not a worktree of anything; naming it
+      # fetch-flix-fetch-flix would be both wrong and confusing.
+      site="$(basename "$main_repo")"
+    else
+      site="$(basename "$main_repo")-$(basename "$PWD")"
+    fi
+    site="$(printf '%s' "$site" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9-]/-/g; s/--*/-/g; s/^-//; s/-$//')"
+
+    # Both are best effort: a half-removed site must not block the worktree from
+    # being archived, and leaving a dead certificate behind is cheaper than
+    # leaving a worktree that cannot be closed.
+    herd unsecure "$site" || true
+    herd unlink "$site" || true
+
+    echo "Removed https://${site}.test"
