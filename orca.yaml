@@ -41,11 +41,25 @@ scripts:
     fi
     site="$(printf '%s' "$site" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9-]/-/g; s/--*/-/g; s/^-//; s/-$//')"
 
+    # A fresh worktree has none of this: vendor/ is not tracked, .env is
+    # ignored, and the sqlite file is ignored too. Without all three the site
+    # exists and answers 500, which is worse than no site at all.
+    #
+    # Order matters. Everything below shells out to artisan, and artisan cannot
+    # boot without vendor/autoload.php.
+    [ -d vendor ] || composer install --no-interaction --prefer-dist
+
     # herd --update-env rewrites APP_URL, so there has to be a file to rewrite.
     if [ ! -f .env ] && [ -f .env.example ]; then
       cp .env.example .env
       php artisan key:generate --ansi
     fi
+
+    if grep -q '^DB_CONNECTION=sqlite' .env 2>/dev/null; then
+      touch database/database.sqlite
+    fi
+
+    php artisan migrate --graceful --no-interaction
 
     herd link "$site" --secure --update-env
 
@@ -83,6 +97,7 @@ scripts:
       echo "No JavaScript runtime (deno/node/bun) found; YouTube extraction will drop formats." >&2
     fi
 
+    # The .env edits above happen after artisan has already booted once.
     php artisan config:clear >/dev/null 2>&1 || true
 
     echo "Worktree served at https://${site}.test"
