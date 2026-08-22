@@ -25,6 +25,73 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Delivery
+    |--------------------------------------------------------------------------
+    |
+    | How a resolved stream reaches the client.
+    |
+    |   storage      Download the file, keep it on our own disk, and hand back a
+    |                signed URL of ours. Chosen because provider URLs are bound
+    |                to the IP that extracted them: a server resolves, a phone
+    |                on another network downloads, and the CDN answers 403. No
+    |                header or retry fixes that, only serving the bytes
+    |                ourselves does.
+    |
+    |   passthrough  Hand back the provider's own URL, as originally designed.
+    |                Kept because it is the escape hatch if storage breaks, and
+    |                because it costs nothing to keep working.
+    |
+    | Note this is a real change in posture, not just plumbing: under `storage`
+    | this service hosts and redistributes the media rather than merely locating
+    | it. That is a business decision, taken deliberately, and the retention
+    | settings below exist partly because of it.
+    |
+    */
+
+    'delivery' => env('MEDIA_DELIVERY', 'storage'),
+
+    'storage' => [
+        'disk' => env('MEDIA_DISK', 'media'),
+
+        // Refused before anything is downloaded, on top of any per-tenant
+        // max_bytes. A tenant with no ceiling of its own must still not be able
+        // to fill the bucket with one request.
+        'max_bytes' => (int) env('MEDIA_MAX_BYTES', 524288000),
+
+        // How long a signed delivery URL stays valid. This is what `expires_at`
+        // reports, and unlike the provider's expiry it is ours to choose and
+        // ours to reissue.
+        'signed_ttl' => (int) env('MEDIA_SIGNED_TTL', 21600),
+
+        // Lifetime of the pre-signed bucket URL we redirect to. Short, because
+        // it is handed out one download at a time and never cached.
+        'presigned_ttl' => (int) env('MEDIA_PRESIGNED_TTL', 900),
+
+        // The download is a file transfer, not a metadata extraction, and is
+        // not bound by the client's 12s resolve ceiling. It runs on a queue.
+        'download_timeout' => (int) env('MEDIA_DOWNLOAD_TIMEOUT', 300),
+
+        // A worker that dies mid-download leaves the row claimed. After this it
+        // may be reclaimed, otherwise one crash strands that video forever.
+        'claim_stale_after' => (int) env('MEDIA_CLAIM_STALE_AFTER', 900),
+        'max_attempts' => (int) env('MEDIA_DOWNLOAD_ATTEMPTS', 3),
+
+        // How long the delivery endpoint will hold a connection waiting for an
+        // in-flight download before telling the client to retry. Only ever hit
+        // on the first request for a given video; every later one is served
+        // from the disk. Kept short because each waiting request occupies a
+        // PHP worker.
+        'wait_ms' => (int) env('MEDIA_STREAM_WAIT_MS', 20000),
+        'poll_ms' => (int) env('MEDIA_STREAM_POLL_MS', 250),
+
+        // Storage costs money every month, which handing back somebody else's
+        // URL did not. An asset nobody has asked for in this many days is
+        // collected by media:prune.
+        'retention_days' => (int) env('MEDIA_RETENTION_DAYS', 30),
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
     | Resolution
     |--------------------------------------------------------------------------
     |

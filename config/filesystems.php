@@ -60,6 +60,35 @@ return [
             'report' => false,
         ],
 
+        /*
+         * Media assets: downloaded video and audio files served to clients
+         * through our own signed URLs.
+         *
+         * `local` in development, `s3` in production. Cloudflare R2 is
+         * S3-compatible and uses the same driver with `MEDIA_S3_ENDPOINT`
+         * pointed at the account endpoint.
+         *
+         * Deliberately no `visibility` key: setting one makes Flysystem send an
+         * ACL header on every write, which R2 rejects. Objects are private by
+         * bucket policy and reached only through short-lived pre-signed URLs.
+         *
+         * `throw` is on. A storage failure that returns false instead of
+         * raising would be recorded as a successful download of a file that is
+         * not there, and only surface later as a broken stream.
+         */
+        'media' => [
+            'driver' => env('MEDIA_DISK_DRIVER', 'local'),
+            'root' => storage_path('app/media'),
+            'key' => env('MEDIA_S3_KEY'),
+            'secret' => env('MEDIA_S3_SECRET'),
+            'region' => env('MEDIA_S3_REGION', 'auto'),
+            'bucket' => env('MEDIA_S3_BUCKET'),
+            'endpoint' => env('MEDIA_S3_ENDPOINT'),
+            'use_path_style_endpoint' => env('MEDIA_S3_PATH_STYLE', false),
+            'throw' => true,
+            'report' => false,
+        ],
+
     ],
 
     /*
