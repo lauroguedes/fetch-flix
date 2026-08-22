@@ -5,6 +5,7 @@ use App\Api\RequestId;
 use App\Http\Middleware\EnsureTenantActive;
 use App\Http\Middleware\RecordApiUsage;
 use App\Http\Middleware\ResolveRequestId;
+use App\Http\Middleware\ValidateStreamSignature;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
@@ -25,6 +26,7 @@ return Application::configure(basePath: dirname(__DIR__))
             'request-id' => ResolveRequestId::class,
             'tenant.active' => EnsureTenantActive::class,
             'usage' => RecordApiUsage::class,
+            'stream-signature' => ValidateStreamSignature::class,
 
             // Token abilities act as endpoint scopes, so a discovery-only
             // consumer cannot spend resolver capacity.

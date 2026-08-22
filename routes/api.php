@@ -3,6 +3,7 @@
 use App\Http\Controllers\Api\V1\DiscoverController;
 use App\Http\Controllers\Api\V1\HealthController;
 use App\Http\Controllers\Api\V1\ResolveController;
+use App\Http\Controllers\Api\V1\StreamController;
 use Illuminate\Support\Facades\Route;
 
 /*
@@ -23,6 +24,15 @@ Route::prefix('v1')->name('api.v1.')->middleware('request-id')->group(function (
     // stay reachable when token issuance or the database is the thing that is
     // broken. It exposes no tenant data.
     Route::get('/health', HealthController::class)->name('health');
+
+    // Unauthenticated on purpose: the client hands this URL to a plain
+    // downloader that sends no headers of its own, so the signature is the
+    // credential. It is short-lived and its asset key is a hash rather than a
+    // video id, so holding one grants access to one file for a few hours and
+    // reveals nothing about the rest.
+    Route::get('/stream/{asset}', StreamController::class)
+        ->middleware('stream-signature')
+        ->name('stream');
 
     Route::middleware(['auth:sanctum', 'tenant.active', 'usage'])->group(function () {
         Route::post('/resolve', ResolveController::class)
