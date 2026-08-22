@@ -110,20 +110,26 @@ final class MediaAssetRepository
     /**
      * Record that somebody actually wanted this file.
      *
-     * Throttled to once an hour and written without touching `updated_at`: a
-     * popular video would otherwise generate a write per byte-range request,
-     * and `updated_at` is the heartbeat `claim()` uses to detect a dead worker.
+     * The delivery count is always incremented; the access stamp is throttled.
+     * Both are written without touching `updated_at`, which is the heartbeat
+     * `claim()` uses to detect a dead worker: bumping it here would make a
+     * genuinely stranded download look alive and block its reclaim.
+     *
+     * The count is deliveries, not downloads: a local-disk response answers
+     * each byte-range request separately, while a bucket redirect is one hit
+     * per download. It is a popularity signal for retention, not a meter.
      */
     public function touchAccess(MediaAsset $asset, int $throttle = 3600): void
     {
+        $query = MediaAsset::query()->toBase()->where('id', $asset->getKey());
+
         if ($asset->last_accessed_at?->gt(Carbon::now()->subSeconds($throttle))) {
+            $query->increment('serve_count');
+
             return;
         }
 
-        MediaAsset::query()
-            ->toBase()
-            ->where('id', $asset->getKey())
-            ->update(['last_accessed_at' => Carbon::now()]);
+        $query->increment('serve_count', 1, ['last_accessed_at' => Carbon::now()]);
     }
 
     /**

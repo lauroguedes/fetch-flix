@@ -7,6 +7,7 @@ use App\Media\YtDlp\YtDlpErrorClassifier;
 use App\Media\YtDlp\YtDlpFailed;
 use App\Media\YtDlp\YtDlpRunner;
 use App\Models\ExtractorHealth;
+use App\Models\MediaAsset;
 use App\Models\Tenant;
 use App\Models\UsageRecord;
 use App\Models\VideoCategory;
@@ -195,4 +196,28 @@ it('reports a self-test failure when the control video cannot be resolved', func
     $this->artisan('yt-dlp:selftest')->assertFailed();
 
     expect(ExtractorHealth::query()->firstOrFail()->failure_code)->toBe('unresolvable');
+});
+
+it('reports storage state on the health probe', function () {
+    // Storage being down is a full outage of /resolve now that the bytes are
+    // ours, so it belongs in the top-level status rather than a footnote.
+    MediaAsset::factory()->stored()->create(['bytes' => 1024]);
+    MediaAsset::factory()->failed()->create();
+
+    $this->getJson('/api/v1/health')
+        ->assertOk()
+        ->assertJsonPath('storage.reachable', true)
+        ->assertJsonPath('storage.driver', 'local')
+        ->assertJsonPath('storage.stored', 1)
+        ->assertJsonPath('storage.failed', 1)
+        ->assertJsonPath('storage.bytes', 1024);
+});
+
+it('degrades the health probe when media storage is unreachable', function () {
+    config()->set('media.storage.disk', 'nonexistent-disk');
+
+    $this->getJson('/api/v1/health')
+        ->assertOk()
+        ->assertJsonPath('status', 'degraded')
+        ->assertJsonPath('storage.reachable', false);
 });

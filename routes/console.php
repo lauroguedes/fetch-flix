@@ -47,6 +47,13 @@ Schedule::command('discover:warm')
 | service keeps about requesters is a stated part of its privacy posture.
 */
 
+// Storage is the one part of this service with a bill attached, so an
+// uncollected library is a cost that grows on its own.
+Schedule::command('media:prune')
+    ->dailyAt('04:10')
+    ->withoutOverlapping()
+    ->runInBackground();
+
 Schedule::call(function () {
     UsageRecord::query()->where('created_at', '<', now()->subDays(90))->delete();
     CachedDiscovery::query()->where('expires_at', '<', now()->subDays(2))->delete();

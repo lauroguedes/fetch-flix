@@ -57,6 +57,7 @@ class MediaAssetFactory extends Factory
             'width' => 640,
             'height' => 360,
             'checksum' => hash('sha256', 'fixture'),
+            'serve_count' => 0,
             'downloaded_at' => now(),
             'last_accessed_at' => now(),
         ]);

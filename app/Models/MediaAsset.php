@@ -38,6 +38,7 @@ use Illuminate\Support\Carbon;
  * @property string|null $author
  * @property string|null $thumbnail_url
  * @property string|null $checksum
+ * @property int $serve_count
  * @property string|null $error_code
  * @property int $attempts
  * @property Carbon|null $downloaded_at
@@ -50,7 +51,7 @@ use Illuminate\Support\Carbon;
     'status', 'disk', 'path', 'format_id',
     'bytes', 'mime_type', 'container', 'width', 'height', 'has_audio', 'has_video',
     'duration_ms', 'title', 'author', 'thumbnail_url',
-    'checksum', 'error_code', 'attempts', 'downloaded_at', 'last_accessed_at',
+    'checksum', 'serve_count', 'error_code', 'attempts', 'downloaded_at', 'last_accessed_at',
 ])]
 class MediaAsset extends Model
 {
