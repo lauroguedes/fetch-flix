@@ -3,6 +3,7 @@
 namespace App\Media\Storage;
 
 use App\Api\Exceptions\ApiException;
+use App\Media\YtDlp\YtDlpEnvironment;
 use App\Media\YtDlp\YtDlpFailed;
 use Symfony\Component\Process\Exception\ProcessTimedOutException;
 use Symfony\Component\Process\Process;
@@ -25,7 +26,7 @@ final class YtDlpMediaDownloader implements MediaDownloader
 
         $this->ensureDirectory($destination);
 
-        $process = new Process($this->command($sourceUrl, $formatId, $destination, $maxBytes));
+        $process = new Process($this->command($sourceUrl, $formatId, $destination, $maxBytes), env: YtDlpEnvironment::forProcess());
         $process->setTimeout($timeout);
 
         try {

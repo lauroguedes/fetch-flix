@@ -49,6 +49,40 @@ scripts:
 
     herd link "$site" --secure --update-env
 
+    # Herd serves through PHP-FPM, whose PATH is not the shell's. A bare
+    # `yt-dlp` resolves fine from a terminal and fails with "exec: yt-dlp: not
+    # found" from a web request, so the binary is pinned by absolute path.
+    set_env() {
+      if grep -q "^$1=" .env; then
+        sed -i '' "s#^$1=.*#$1=$2#" .env
+      else
+        printf '\n%s=%s\n' "$1" "$2" >> .env
+      fi
+    }
+
+    ytdlp="$(command -v yt-dlp || true)"
+    [ -n "$ytdlp" ] && set_env YT_DLP_BINARY "$ytdlp"
+
+    # yt-dlp does not run alone: solving YouTube's `n` challenge needs a
+    # JavaScript runtime on PATH. Without one it still exits zero and quietly
+    # drops every format that requires a PO token, so a video that resolves from
+    # a terminal returns media_missing under PHP-FPM. This hook runs in the
+    # user's own shell, which is the only place that knows where the runtime is.
+    runtime=""
+    for candidate in deno node bun; do
+      found="$(command -v "$candidate" || true)"
+      if [ -n "$found" ]; then
+        runtime="$(dirname "$found")"
+        break
+      fi
+    done
+
+    if [ -n "$runtime" ]; then
+      set_env YT_DLP_PATH "$runtime"
+    else
+      echo "No JavaScript runtime (deno/node/bun) found; YouTube extraction will drop formats." >&2
+    fi
+
     php artisan config:clear >/dev/null 2>&1 || true
 
     echo "Worktree served at https://${site}.test"

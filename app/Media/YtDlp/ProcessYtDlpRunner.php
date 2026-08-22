@@ -20,7 +20,7 @@ final class ProcessYtDlpRunner implements YtDlpRunner
     {
         $timeoutMs = (int) config('media.resolve.process_timeout_ms', 8000);
 
-        $process = new Process($this->command($url));
+        $process = new Process($this->command($url), env: YtDlpEnvironment::forProcess());
         $process->setTimeout($timeoutMs / 1000);
 
         $startedAt = hrtime(true);

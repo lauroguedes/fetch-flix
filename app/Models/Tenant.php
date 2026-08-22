@@ -4,11 +4,13 @@ namespace App\Models;
 
 use App\Tenancy\TenantStatus;
 use Database\Factories\TenantFactory;
+use Illuminate\Contracts\Auth\Authenticatable;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Carbon;
 use Laravel\Sanctum\HasApiTokens;
+use LogicException;
 
 /**
  * A consuming application, not a human account.
@@ -42,7 +44,7 @@ use Laravel\Sanctum\HasApiTokens;
     'min_progressive_height',
     'settings',
 ])]
-class Tenant extends Model
+class Tenant extends Model implements Authenticatable
 {
     /** @use HasFactory<TenantFactory> */
     use HasApiTokens, HasFactory;
@@ -50,6 +52,67 @@ class Tenant extends Model
     public const ABILITY_RESOLVE = 'resolve';
 
     public const ABILITY_DISCOVER = 'discover';
+
+    /**
+     * Tenants are the resolved user of the `api` guard, so they have to satisfy
+     * the contract the guard is typed against. Anything that reaches for
+     * `Auth::id()` during a request otherwise fatals: Pail does exactly that on
+     * every log line, which turned any logged error on an authenticated request
+     * into a 500 with the real cause buried underneath.
+     *
+     * Implemented directly rather than by using the Authenticatable trait,
+     * because that trait assumes a password column and a remember token. A
+     * tenant has neither, and claiming otherwise would be a lie that only
+     * surfaces the first time something tries to use them.
+     */
+    public function getAuthIdentifierName(): string
+    {
+        return $this->getKeyName();
+    }
+
+    public function getAuthIdentifier(): mixed
+    {
+        return $this->getKey();
+    }
+
+    public function getAuthPasswordName(): string
+    {
+        return $this->unsupportedCredential('password name');
+    }
+
+    public function getAuthPassword(): string
+    {
+        return $this->unsupportedCredential('password');
+    }
+
+    public function getRememberToken(): ?string
+    {
+        // Not throwing: sessions legitimately ask, and "no token" is a truthful
+        // answer for a consumer that authenticates with a bearer token on every
+        // request.
+        return null;
+    }
+
+    public function setRememberToken($value): void
+    {
+        //
+    }
+
+    public function getRememberTokenName(): ?string
+    {
+        return null;
+    }
+
+    /**
+     * @throws LogicException always
+     */
+    private function unsupportedCredential(string $what): never
+    {
+        throw new LogicException(
+            "Tenants authenticate with Sanctum tokens and have no {$what}. ".
+            'Reaching for one means a password-based guard has been pointed at the tenants provider.'
+        );
+    }
 
     /**
      * @return array<string, string>

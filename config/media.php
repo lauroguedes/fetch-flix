@@ -149,6 +149,18 @@ return [
     'yt_dlp' => [
         'binary' => env('YT_DLP_BINARY', 'yt-dlp'),
 
+        // Extra PATH entries for the extractor process, colon separated.
+        //
+        // yt-dlp does not run alone: solving YouTube's `n` challenge needs a
+        // JavaScript runtime (Deno) on PATH. Without one the binary still exits
+        // zero and quietly drops every format that requires a PO token, so a
+        // video that resolves from a terminal returns `media_missing` when the
+        // same code runs under PHP-FPM with its narrower PATH.
+        //
+        // The directory of an absolute `binary` is always included, so this is
+        // only needed when the runtime lives somewhere else.
+        'path' => env('YT_DLP_PATH'),
+
         // Nightly, not stable: stable lags YouTube changes by days.
         'channel' => env('YT_DLP_CHANNEL', 'nightly'),
 

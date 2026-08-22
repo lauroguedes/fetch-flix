@@ -2,6 +2,7 @@
 
 use App\Models\Tenant;
 use App\Models\User;
+use Illuminate\Contracts\Auth\Authenticatable;
 use Illuminate\Support\Facades\Route;
 
 beforeEach(function () {
@@ -86,4 +87,28 @@ it('leaves the health probe reachable without a token', function () {
     $this->getJson('/api/v1/health')
         ->assertOk()
         ->assertJsonPath('status', 'ok');
+});
+
+it('resolves as an authenticatable so Auth::id() cannot fatal mid-request', function () {
+    // Anything reaching for Auth::id() during a request used to fatal, because
+    // the guard is typed against Authenticatable and Tenant was not one. Pail
+    // does exactly that on every log line, so any logged error on an
+    // authenticated request became a 500 with the real cause buried under it.
+    $tenant = Tenant::factory()->create();
+    $token = $tenant->createToken('test', [Tenant::ABILITY_RESOLVE])->plainTextToken;
+
+    $this->withToken($token)->getJson('/api/v1/health')->assertOk();
+
+    expect($tenant)->toBeInstanceOf(Authenticatable::class)
+        ->and($tenant->getAuthIdentifier())->toBe($tenant->id)
+        ->and($tenant->getAuthIdentifierName())->toBe('id')
+        ->and($tenant->getRememberToken())->toBeNull();
+});
+
+it('refuses to pretend a tenant has a password', function () {
+    // A tenant authenticates with a bearer token and has no password column.
+    // Returning an empty string would let a password guard silently compare
+    // against nothing.
+    expect(fn () => Tenant::factory()->create()->getAuthPassword())
+        ->toThrow(LogicException::class);
 });
