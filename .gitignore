@@ -22,3 +22,6 @@ yarn-error.log
 /.nova
 /.vscode
 /.zed
+
+# Orca worktree hooks are local-only: they encode this machine's Herd setup.
+orca.yaml
