@@ -47,6 +47,7 @@ final readonly class ResolvedMedia
                 'expires_at' => $this->media->expiresAt->toIso8601ZuluString(),
                 'degraded' => $this->media->degraded,
                 'requested_height' => $this->media->requestedHeight,
+                'format_id' => $this->media->formatId,
             ],
         ];
     }
@@ -78,6 +79,7 @@ final readonly class ResolvedMedia
                 expiresAt: Carbon::parse($media['expires_at']),
                 degraded: $media['degraded'] ?? false,
                 requestedHeight: $media['requested_height'] ?? null,
+                formatId: $media['format_id'] ?? null,
             ),
         );
     }

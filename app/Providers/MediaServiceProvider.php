@@ -4,6 +4,9 @@ namespace App\Providers;
 
 use App\Api\Exceptions\ApiException;
 use App\Api\UsageTracker;
+use App\Media\Delivery\MediaDelivery;
+use App\Media\Delivery\PassthroughDelivery;
+use App\Media\Delivery\StorageDelivery;
 use App\Media\Discovery\DimensionResolver;
 use App\Media\Discovery\YouTubeDimensionResolver;
 use App\Media\Events\BotDetected;
@@ -39,6 +42,13 @@ class MediaServiceProvider extends ServiceProvider
         // a queue with a deadline in minutes, extraction on the request with a
         // deadline in seconds.
         $this->app->bind(MediaDownloader::class, YtDlpMediaDownloader::class);
+
+        // A binding rather than a conditional, so the pass-through path stays
+        // executable and testable instead of decaying into an escape hatch
+        // nobody has run in months.
+        $this->app->bind(MediaDelivery::class, fn (Application $app) => config('media.delivery') === 'passthrough'
+            ? $app->make(PassthroughDelivery::class)
+            : $app->make(StorageDelivery::class));
 
         // The base class is the terminal rung on its own; this puts the
         // database and oEmbed lookups in front of it.

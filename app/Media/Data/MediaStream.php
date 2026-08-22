@@ -27,6 +27,12 @@ final readonly class MediaStream
         public Carbon $expiresAt,
         public bool $degraded = false,
         public ?int $requestedHeight = null,
+        /**
+         * The extractor's own id for this format. Internal: it is what a queued
+         * download pins itself to, so the file that lands is the one the
+         * response already described. Never serialized to the client.
+         */
+        public ?string $formatId = null,
     ) {}
 
     public function isExpired(): bool

@@ -99,20 +99,24 @@ it('returns 200 with truthful dimensions when it has to degrade', function () {
         ->assertJsonPath('media.requested_height', 720);
 });
 
-it('passes cdn headers through verbatim', function () {
+it('passes cdn headers through verbatim in passthrough mode', function () {
+    // Only meaningful when the client downloads from the provider. Under
+    // storage delivery it downloads from us and there is nothing to pass.
+    config()->set('media.delivery', 'passthrough');
     fakeRunner(FakeYtDlpRunner::withFixture('progressive-only'));
 
     $response = resolveAs(Tenant::factory()->create(), ['max_height' => 360]);
 
-    $headers = $response->json('media.headers');
-
     // Some CDNs 403 without these, and the client feeds them straight into
     // URLSession.
+    $headers = $response->json('media.headers');
+
     expect($headers)->toHaveKey('User-Agent')
         ->and($headers['User-Agent'])->toContain('Mozilla/5.0');
 });
 
-it('returns an ISO-8601 expiry parsed from the stream url', function () {
+it('returns an ISO-8601 expiry parsed from the stream url in passthrough mode', function () {
+    config()->set('media.delivery', 'passthrough');
     fakeRunner(FakeYtDlpRunner::withFixture('progressive-only'));
 
     // Fixture urls carry expire=2051222400 (2035-01-01Z); the advertised value

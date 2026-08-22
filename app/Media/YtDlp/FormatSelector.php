@@ -235,6 +235,7 @@ final class FormatSelector
             expiresAt: $expiresAt,
             degraded: $degraded,
             requestedHeight: $degraded ? $request->maxHeight : null,
+            formatId: is_scalar($format['format_id'] ?? null) ? (string) $format['format_id'] : null,
         );
     }
 

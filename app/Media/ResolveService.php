@@ -5,6 +5,7 @@ namespace App\Media;
 use App\Api\Exceptions\ApiException;
 use App\Media\Data\MediaRequest;
 use App\Media\Data\ResolvedMedia;
+use App\Media\Delivery\MediaDelivery;
 use App\Media\Jobs\ResolveMediaJob;
 use App\Models\Tenant;
 use Illuminate\Contracts\Cache\LockTimeoutException;
@@ -23,6 +24,7 @@ final class ResolveService
 {
     public function __construct(
         private readonly ProviderRegistry $registry,
+        private readonly MediaDelivery $delivery,
     ) {}
 
     public function resolve(Tenant $tenant, MediaRequest $request, string $requestId): ResolvedMedia
@@ -47,6 +49,17 @@ final class ResolveService
             $this->remember($dedupeKey, $shared, $this->dedupeTtl($shared));
 
             return $shared;
+        }
+
+        // Behind the cache but ahead of extraction: when the file is already on
+        // our disk there is nothing to extract, and this turns an 8s process
+        // spawn into an indexed read. Survives a cache flush, which the two
+        // lookups above do not.
+        if ($stored = $this->delivery->cached($provider->slug(), $providerId, $request)) {
+            $this->remember($sharedKey, $stored, $this->sharedTtl($stored));
+            $this->remember($dedupeKey, $stored, $this->dedupeTtl($stored));
+
+            return $stored;
         }
 
         $lock = Cache::lock($this->lockKey($fingerprint), (int) config('media.resolve.lock_ttl', 15));
@@ -74,7 +87,7 @@ final class ResolveService
             }
 
             try {
-                $resolved = $provider->resolve($request);
+                $resolved = $this->delivery->prepare($provider->resolve($request), $request);
             } catch (ApiException $e) {
                 $this->handleTimeout($e, $request, $fingerprint);
 
