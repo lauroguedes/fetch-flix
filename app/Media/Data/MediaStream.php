@@ -28,9 +28,9 @@ final readonly class MediaStream
         public bool $degraded = false,
         public ?int $requestedHeight = null,
         /**
-         * The extractor's own id for this format. Internal: it is what a queued
-         * download pins itself to, so the file that lands is the one the
-         * response already described. Never serialized to the client.
+         * The extractor's own format id. Internal: a queued download pins
+         * itself to it so the file that lands is the one the response
+         * described. Never serialized to the client.
          */
         public ?string $formatId = null,
     ) {}

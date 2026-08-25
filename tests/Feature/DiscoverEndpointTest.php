@@ -13,19 +13,11 @@ beforeEach(function () {
 
 function discoverAs(Tenant $tenant, array $payload = []): TestResponse
 {
-    // Laravel's auth guards cache the resolved user, and a test keeps one
-    // container alive across many requests, so without this the second call in
-    // a test is still attributed to the first caller. Real requests get a fresh
-    // container (and Octane flushes guards), so this restores production
-    // behaviour rather than papering over a bug.
-    app('auth')->forgetGuards();
-
-    $token = $tenant->createToken('test', [Tenant::ABILITY_DISCOVER])->plainTextToken;
-
-    return test()->withToken($token)->postJson('/api/v1/discover', array_replace([
-        'kind' => 'search',
-        'query' => 'cats jumping',
-    ], $payload));
+    return actingAsTenant($tenant, [Tenant::ABILITY_DISCOVER])
+        ->postJson('/api/v1/discover', array_replace([
+            'kind' => 'search',
+            'query' => 'cats jumping',
+        ], $payload));
 }
 
 it('returns cards in the contracted shape', function () {
@@ -37,7 +29,7 @@ it('returns cards in the contracted shape', function () {
     discoverAs(Tenant::factory()->create())
         ->assertOk()
         ->assertJsonStructure([
-            'videos' => [['id', 'title', 'channel', 'duration_ms', 'thumbnail_url', 'width', 'height']],
+            'videos' => [['id', 'provider', 'url', 'title', 'channel', 'duration_ms', 'thumbnail_url', 'width', 'height']],
             'next_page_token',
         ])
         ->assertJsonPath('videos.0.duration_ms', 42000)
@@ -219,4 +211,27 @@ it('keeps separate cache entries per page token', function () {
 
     // Page two is a different result set and must not be served page one.
     expect(YouTubeApiFake::dataApiCalls())->toBe(4);
+});
+
+it('returns a url a client can hand straight back to resolve', function () {
+    // Without this the consumer has to know how to build a YouTube URL out of
+    // an id, which is exactly the coupling this API exists to remove.
+    YouTubeApiFake::fake([['id' => 'aaaaaaaaaaa']]);
+
+    $response = discoverAs(Tenant::factory()->create())->assertOk();
+
+    expect($response->json('videos.0.url'))->toBe('https://www.youtube.com/watch?v=aaaaaaaaaaa')
+        ->and($response->json('videos.0.provider'))->toBe('youtube');
+});
+
+it('points an unknown category at the endpoint that lists them', function () {
+    $response = discoverAs(Tenant::factory()->create(), [
+        'kind' => 'category',
+        'query' => null,
+        'category' => 'no-such-feed',
+    ])->assertStatus(422);
+
+    expect($response->json('message'))->toContain('/v1/categories');
+
+    Http::assertNothingSent();
 });

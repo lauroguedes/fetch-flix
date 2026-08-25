@@ -7,18 +7,15 @@ use Illuminate\Support\Carbon;
 /**
  * Determines when a stream URL stops working.
  *
- * The client re-resolves rather than reusing a stale URL, so this value has to
- * be right. Guessing a fixed TTL would either expire usable URLs early or hand
- * out dead ones, and the latter surfaces to the user as a failed download with
- * no useful error.
+ * The client re-resolves rather than reusing a stale URL, so this has to be
+ * right: a guessed TTL either expires usable URLs early or hands out dead ones.
  */
 final class StreamExpiry
 {
     /**
-     * googlevideo URLs carry the expiry as an `expire` query parameter holding a
-     * Unix timestamp, or as an `/expire/<ts>/` path segment on some hosts. Both
-     * are integrity-protected by the URL's signature, so they can be trusted as
-     * read and cannot be extended by editing them.
+     * googlevideo carries the expiry as an `expire` query parameter or an
+     * `/expire/<ts>/` path segment. Both are covered by the URL's signature, so
+     * they can be trusted as read and cannot be extended by editing.
      */
     public static function from(string $url, ?int $fallbackSeconds = null): Carbon
     {
@@ -34,11 +31,8 @@ final class StreamExpiry
     }
 
     /**
-     * Applies the safety margin.
-     *
-     * A client that resolves at T and starts its download at T+90 must not be
-     * handed a URL that dies mid-transfer, so the advertised expiry is pulled
-     * back from the real one.
+     * Pull the advertised expiry back from the real one, so a client that
+     * resolves at T and downloads at T+90 is not handed a dying URL.
      */
     public static function withSafetyMargin(Carbon $expiresAt): Carbon
     {

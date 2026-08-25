@@ -11,36 +11,30 @@ use Throwable;
 /**
  * Aspect ratios from YouTube's oEmbed endpoint.
  *
- * Costs zero Data API quota, which is the entire reason it exists: the Data API
- * returns no dimensions at all, and paying 100-unit search calls to learn a
- * video's shape would be absurd.
+ * Costs zero Data API quota, which is why it exists: the Data API returns no
+ * dimensions and paying 100-unit search calls to learn a shape would be absurd.
  *
- * Verified against live YouTube on 2026-08-16:
+ * The /shorts/ form is required for vertical video and is also honest — it
+ * reports 16:9 for a landscape video that merely appeared in a shorts feed — so
+ * its answer is trusted as returned. See config/media.php for the measurements.
  *
- *   9FDVvWR91ww  /watch?v=  -> 200x113   (1.77)
- *   9FDVvWR91ww  /shorts/   -> 113x200   (0.565)
- *   OzK3PNF0WqU  /watch?v=  -> 200x113   (1.77)
- *   OzK3PNF0WqU  /shorts/   -> 200x113   (1.77)
- *
- * So the /shorts/ form is required for vertical video, and it is also honest:
- * it reports 16:9 for a landscape video that merely appeared in a shorts feed.
- * The answer is therefore trusted exactly as returned, never overridden by a
- * "this is short so it must be portrait" assumption.
- *
- * The numbers are the embed player box rather than the encode, so only the
- * ratio is meaningful. Snapping to a nominal encode happens in AspectRatio.
+ * The numbers are the embed player box, not the encode, so only the ratio is
+ * meaningful; Dimensions::snapToStandardEncode() handles that.
  */
 final class OEmbedClient
 {
+    public function __construct(
+        private readonly YouTubeUrlParser $urls,
+    ) {}
+
     /**
-     * Look up many videos at once.
-     *
-     * Pooled so a page of fifty costs roughly one round trip rather than fifty,
-     * which is what keeps this inside the discover latency budget.
+     * Look up many videos at once, pooled so a page of fifty costs roughly one
+     * round trip rather than fifty.
      *
      * @param  array<int, array{id: string, duration_ms: int|null}>  $videos
-     * @return array<string, Dimensions> keyed by video id; missing entries mean the
-     *                                   lookup failed and a caller must fall back
+     * @return array<string, Dimensions> keyed by video id; a missing entry means
+     *                                   the lookup failed and the caller must
+     *                                   fall back
      */
     public function lookup(array $videos): array
     {
@@ -56,8 +50,7 @@ final class OEmbedClient
         foreach ($videos as $video) {
             $duration = $video['duration_ms'];
 
-            // Long videos cannot be Shorts, so asking the /shorts/ endpoint for
-            // them is a guaranteed miss and a wasted round trip.
+            // Long videos cannot be Shorts: asking /shorts/ is a wasted trip.
             if ($duration !== null && $duration <= $threshold) {
                 $shortsFirst[] = $video['id'];
             } else {
@@ -65,24 +58,30 @@ final class OEmbedClient
             }
         }
 
-        $found = $this->fetch($shortsFirst, shorts: true);
+        // Both forms go out together: only the /shorts/ retry below depends on
+        // a result, so serialising the long videos behind it would pay two
+        // round trips for one page.
+        $found = $this->fetch(
+            array_fill_keys($shortsFirst, true) + array_fill_keys($watchOnly, false)
+        );
 
-        // A /shorts/ miss means the video is not a Short, not that it has no
-        // dimensions, so those fall through to the standard form.
+        // A /shorts/ miss means "not a Short", not "no dimensions".
         $missed = array_values(array_diff($shortsFirst, array_keys($found)));
 
-        return $found + $this->fetch([...$watchOnly, ...$missed], shorts: false);
+        return $found + $this->fetch(array_fill_keys($missed, false));
     }
 
     /**
-     * @param  array<int, string>  $ids
+     * @param  array<string, bool>  $forms  video id => ask the /shorts/ form
      * @return array<string, Dimensions>
      */
-    private function fetch(array $ids, bool $shorts): array
+    private function fetch(array $forms): array
     {
-        if ($ids === []) {
+        if ($forms === []) {
             return [];
         }
+
+        $ids = array_keys($forms);
 
         $endpoint = (string) config('media.dimensions.oembed_endpoint', 'https://www.youtube.com/oembed');
         $timeout = (int) config('media.dimensions.oembed_timeout', 2);
@@ -91,9 +90,9 @@ final class OEmbedClient
             $responses = Http::pool(fn (Pool $pool) => array_map(
                 fn (string $id) => $pool->as($id)->timeout($timeout)->get($endpoint, [
                     'format' => 'json',
-                    'url' => $shorts
-                        ? "https://www.youtube.com/shorts/{$id}"
-                        : "https://www.youtube.com/watch?v={$id}",
+                    'url' => $forms[$id]
+                        ? $this->urls->shortsUrl($id)
+                        : $this->urls->watchUrl($id),
                 ]),
                 $ids
             ));

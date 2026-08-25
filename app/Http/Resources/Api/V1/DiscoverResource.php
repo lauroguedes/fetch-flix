@@ -3,11 +3,12 @@
 namespace App\Http\Resources\Api\V1;
 
 use App\Media\Data\DiscoveryPage;
-use App\Media\Data\VideoCard;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
 /**
+ * The success envelope for /discover.
+ *
  * @property DiscoveryPage $resource
  */
 class DiscoverResource extends JsonResource
@@ -20,20 +21,8 @@ class DiscoverResource extends JsonResource
     public function toArray(Request $request): array
     {
         return [
-            'videos' => array_map(
-                fn (VideoCard $video) => [
-                    'id' => $video->id,
-                    'title' => $video->title,
-                    'channel' => $video->channel,
-                    'duration_ms' => $video->durationMs,
-                    'thumbnail_url' => $video->thumbnailUrl,
-                    // Never null. A consumer sizes its player frame from these
-                    // before any media loads.
-                    'width' => $video->width,
-                    'height' => $video->height,
-                ],
-                $this->resource->videos
-            ),
+            'videos' => VideoCardResource::collection($this->resource->videos),
+            // Pass back as `page_token` for the next page. Null on the last.
             'next_page_token' => $this->resource->nextPageToken,
         ];
     }

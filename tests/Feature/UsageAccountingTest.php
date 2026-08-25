@@ -93,8 +93,7 @@ it('records which consuming app made the call', function () {
     // The question that actually comes up in an incident: is this every
     // consumer, or one app version that shipped a bad build?
     expect($record->client_platform)->toBe('ios')
-        ->and($record->client_app_version)->toBe('1.4.2')
-        ->and($record->client_api_version)->toBe('v1');
+        ->and($record->client_app_version)->toBe('1.4.2');
 });
 
 it('attributes a rejected request to the app that sent it', function () {
@@ -111,18 +110,62 @@ it('attributes a rejected request to the app that sent it', function () {
         ->and($record->client_platform)->toBe('ios');
 });
 
-it('truncates an oversized client value rather than failing the write', function () {
+it('attributes a call by the X-Client header', function () {
     app()->instance(YtDlpRunner::class, FakeYtDlpRunner::withFixture('standard'));
 
-    resolveAs(Tenant::factory()->create(), [
-        'client' => ['platform' => str_repeat('x', 200), 'app_version' => '1', 'api_version' => 'v1'],
-    ])->assertStatus(422);
+    resolveAs(Tenant::factory()->create(), [], ['X-Client' => 'android/2.0.1'])->assertOk();
 
-    // The value is untrusted: an overlong field must not break accounting.
-    expect(mb_strlen((string) UsageRecord::query()->firstOrFail()->client_platform))->toBe(32);
+    $record = UsageRecord::query()->firstOrFail();
+
+    expect($record->client_platform)->toBe('android')
+        ->and($record->client_app_version)->toBe('2.0.1');
 });
 
-it('leaves client columns null for an endpoint that sends no client block', function () {
+it('ignores a client block in the body', function () {
+    app()->instance(YtDlpRunner::class, FakeYtDlpRunner::withFixture('standard'));
+
+    // The body block is no longer part of the contract. It must not be read,
+    // and it must not fail validation either — an unknown key is simply ignored.
+    resolveAs(
+        Tenant::factory()->create(),
+        ['client' => ['platform' => 'ios', 'app_version' => '9.9.9']],
+        ['X-Client' => 'android/2.0.1'],
+    )->assertOk();
+
+    $record = UsageRecord::query()->firstOrFail();
+
+    expect($record->client_platform)->toBe('android')
+        ->and($record->client_app_version)->toBe('2.0.1');
+});
+
+it('truncates an oversized X-Client header rather than failing the write', function () {
+    app()->instance(YtDlpRunner::class, FakeYtDlpRunner::withFixture('standard'));
+
+    resolveAs(Tenant::factory()->create(), [], ['X-Client' => str_repeat('x', 200)])->assertOk();
+
+    $record = UsageRecord::query()->firstOrFail();
+
+    // Untrusted: an overlong value must not break accounting, and no version
+    // half is honest rather than invented.
+    expect(mb_strlen((string) $record->client_platform))->toBe(32)
+        ->and($record->client_app_version)->toBeNull();
+});
+
+it('still records the call when X-Client carries invalid bytes', function () {
+    // The row must survive. An invalid UTF-8 sequence makes the insert throw on
+    // MySQL or Postgres, and the accounting catch swallows it — so without the
+    // charset filter a client sending one would silently never be billed.
+    app()->instance(YtDlpRunner::class, FakeYtDlpRunner::withFixture('standard'));
+
+    resolveAs(Tenant::factory()->create(), [], ['X-Client' => "and\xB1roid/2.0\x00"])->assertOk();
+
+    $record = UsageRecord::query()->firstOrFail();
+
+    expect($record->client_platform)->toBe('android')
+        ->and($record->client_app_version)->toBe('2.0');
+});
+
+it('leaves client columns null when no X-Client header is sent', function () {
     config()->set('media.discovery.youtube_api_key', 'test-key');
     YouTubeApiFake::fake([['id' => 'aaaaaaaaaaa']]);
 

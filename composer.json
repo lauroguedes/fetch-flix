@@ -1,18 +1,23 @@
 {
     "$schema": "https://getcomposer.org/schema.json",
-    "name": "laravel/blank-livewire-starter-kit",
+    "name": "lauroguedes/fetch-flix",
     "type": "project",
-    "description": "The official Laravel starter kit for Livewire.",
+    "description": "An API that resolves a video URL into one downloadable file, discovers videos, and serves the bytes.",
     "keywords": [
         "laravel",
-        "framework"
+        "api",
+        "video",
+        "yt-dlp",
+        "youtube"
     ],
     "license": "MIT",
     "require": {
         "php": "^8.3",
+        "dedoc/scramble": "^0.13.42",
         "laravel/framework": "^13.17",
         "laravel/sanctum": "^4.0",
         "laravel/tinker": "^3.0",
+        "league/flysystem-aws-s3-v3": "^3.35",
         "livewire/blaze": "^1.0",
         "livewire/livewire": "^4.1"
     },
@@ -66,6 +71,9 @@
         ],
         "types:check": [
             "phpstan analyse --memory-limit=2G"
+        ],
+        "docs:export": [
+            "@php artisan scramble:export"
         ],
         "test": [
             "@php artisan config:clear --ansi",

@@ -11,9 +11,9 @@ use Symfony\Component\HttpFoundation\Response;
 /**
  * Establishes the correlation id for the request and echoes it back.
  *
- * A missing or malformed X-Request-Id is replaced rather than rejected. The
- * header is a debugging and deduplication aid, and failing a media request over
- * its formatting would turn a client-side nicety into an outage.
+ * A missing or malformed X-Request-Id is replaced rather than rejected: it is a
+ * debugging and deduplication aid, and failing a media request over its
+ * formatting would turn a client-side nicety into an outage.
  */
 class ResolveRequestId
 {

@@ -1,6 +1,6 @@
 <?php
 
-namespace App\Tenancy;
+namespace App\Models;
 
 enum TenantStatus: string
 {

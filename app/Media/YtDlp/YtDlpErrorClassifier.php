@@ -4,21 +4,15 @@ namespace App\Media\YtDlp;
 
 use App\Api\ErrorCode;
 use App\Api\Exceptions\ApiException;
-use App\Media\Events\BotDetected;
-use App\Media\Events\ExtractorBroken;
-use Illuminate\Support\Facades\Event;
 
 /**
  * Maps raw extractor stderr onto the client-facing error taxonomy.
  *
- * yt-dlp emits no structured errors, so this is pattern matching against
- * stderr, driven by an ordered table in config/media.php that can be extended
- * without a deploy.
- *
- * The default case carries the design weight: unrecognised stderr becomes a
- * retryable ResolverUnavailable and raises ExtractorBroken. YouTube changes
- * weekly, and the failure mode this prevents is a wave of silent 500s that
- * nobody notices until clients complain.
+ * yt-dlp emits no structured errors, so this is pattern matching against an
+ * ordered table in config/media.php. The default case carries the weight:
+ * unrecognised stderr becomes a retryable ResolverUnavailable and is reported
+ * as a breakage, so next week's YouTube change surfaces as one alert instead of
+ * a wave of silent 500s.
  */
 final class YtDlpErrorClassifier
 {
@@ -43,30 +37,30 @@ final class YtDlpErrorClassifier
             }
 
             if ($rule['bot_check'] ?? false) {
-                // Reported distinctly from a generic extractor failure: this is
-                // the metric that decides when to escalate to a PO token
-                // provider or move resolver egress off the datacenter.
-                Event::dispatch(new BotDetected($stderr));
+                ExtractorReport::botCheck($stderr);
             }
 
             if ($rule['extractor_broken'] ?? false) {
-                Event::dispatch(new ExtractorBroken($stderr, matched: true));
+                ExtractorReport::broken($stderr, matched: true);
             }
 
             return $this->toException($rule['code'], $failure);
         }
 
-        Event::dispatch(new ExtractorBroken($stderr, matched: false));
+        ExtractorReport::broken($stderr, matched: false);
 
         return ApiException::resolverUnavailable(
-            context: ['reason' => 'unclassified', 'stderr' => $stderr],
+            context: ['reason' => 'unclassified', 'stderr' => ExtractorReport::redact($stderr)],
             previous: $failure,
         );
     }
 
     private function toException(ErrorCode $code, YtDlpFailed $failure): ApiException
     {
-        $context = ['stderr' => $failure->stderr, 'exit_code' => $failure->exitCode];
+        $context = [
+            'stderr' => ExtractorReport::redact($failure->stderr),
+            'exit_code' => $failure->exitCode,
+        ];
 
         return match ($code) {
             ErrorCode::PrivateOrRestricted => ApiException::privateOrRestricted(context: $context),

@@ -3,27 +3,47 @@
 namespace App\Http\Controllers\Api\V1;
 
 use App\Api\RequestId;
-use App\Http\Controllers\Controller;
 use App\Media\Data\AssetStatus;
 use App\Media\Discovery\QuotaGuard;
-use App\Media\Listeners\ReportBotDetection;
-use App\Media\Listeners\ReportExtractorBroken;
+use App\Media\YtDlp\ExtractorReport;
 use App\Models\ExtractorHealth;
 use App\Models\MediaAsset;
+use App\Models\Tenant;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Storage;
 use Throwable;
 
 /**
- * Operational probe.
+ * Operational probe, in two depths.
  *
- * Unauthenticated on purpose: it must stay reachable when token issuance or the
- * database is the thing that is broken, and it exposes no tenant data. Only
- * aggregate service state.
+ * Unauthenticated it answers only the question a load balancer or uptime
+ * monitor asks: is this service serving? That is deliberate. The detailed view
+ * names the extractor version, the remaining discovery quota and the size of
+ * the library — enough for an outsider to fingerprint the deployment and to
+ * time a quota-exhaustion attack against a budget shared by every consumer.
+ *
+ * A valid tenant token unlocks the detail on the same URL, so monitoring keeps
+ * one endpoint and simply presents credentials for the deeper view.
  */
-class HealthController extends Controller
+class HealthController
 {
-    public function __invoke(QuotaGuard $quota): JsonResponse
+    /**
+     * Service health, at two depths
+     *
+     * Unauthenticated, it returns only `status`, `extractor.state` and
+     * `storage.reachable` — what a load balancer or uptime monitor needs.
+     *
+     * Send a valid tenant token to the same URL to also get the extractor
+     * version and recent failure counts, the remaining discovery quota, and
+     * storage counts. That detail is withheld from anonymous callers because it
+     * fingerprints the deployment and would let an outsider time an attack on
+     * the shared discovery budget.
+     *
+     * `status` is `ok` or `degraded`; a `degraded` service still answers.
+     */
+    public function __invoke(Request $request, QuotaGuard $quota): JsonResponse
     {
         $latest = ExtractorHealth::query()->latest('checked_at')->first();
 
@@ -33,62 +53,100 @@ class HealthController extends Controller
             default => 'broken',
         };
 
-        $botChecks = ReportBotDetection::rateThisHour();
-        $storage = $this->storage();
+        $reachable = $this->storageReachable();
 
-        return response()->json([
-            'status' => $extractor === 'broken' || ! $storage['reachable'] ? 'degraded' : 'ok',
-            'extractor' => [
-                'state' => $extractor,
-                'yt_dlp_version' => $latest?->yt_dlp_version,
-                'checked_at' => $latest?->checked_at?->toIso8601ZuluString(),
-                'failure_code' => $latest?->failure_code,
-                'failures_last_hour' => ReportExtractorBroken::countThisHour(),
-                // The number that decides whether to escalate to a PO token
-                // provider or move resolver egress off the datacenter.
-                'bot_checks_last_hour' => $botChecks,
-            ],
-            'discovery' => [
-                'quota_remaining' => $quota->remainingGlobally(),
-                'quota_resets_in' => $quota->secondsUntilReset(),
-            ],
-            'storage' => $storage,
+        $payload = [
+            'status' => $extractor === 'broken' || ! $reachable ? 'degraded' : 'ok',
+            'extractor' => ['state' => $extractor],
+            'storage' => ['reachable' => $reachable],
             'request_id' => RequestId::current(),
-        ]);
+        ];
+
+        if (! $this->isTrusted()) {
+            return response()->json($payload);
+        }
+
+        $payload['extractor'] += [
+            'yt_dlp_version' => $latest?->yt_dlp_version,
+            'checked_at' => $latest?->checked_at?->toIso8601ZuluString(),
+            'failure_code' => $latest?->failure_code,
+            'failures_last_hour' => ExtractorReport::breakagesThisHour(),
+            // Decides whether to escalate to a PO token provider or move
+            // resolver egress off the datacenter.
+            'bot_checks_last_hour' => ExtractorReport::botChecksThisHour(),
+        ];
+
+        $payload['discovery'] = [
+            'quota_remaining' => $quota->remainingGlobally(),
+            'quota_resets_in' => $quota->secondsUntilReset(),
+        ];
+
+        $payload['storage'] += $this->storageDetail();
+
+        return response()->json($payload);
     }
 
     /**
-     * State of the disk the service now serves media from.
+     * Whether the caller may see more than "is it up".
      *
-     * Reachability is checked with a single existence probe rather than a
-     * write: it is one HEAD request, and it is enough to catch the failures
-     * that actually happen — wrong endpoint, expired credentials, deleted
-     * bucket. Storage being down is a full outage of /resolve now that the
-     * bytes are ours, so it belongs in the top-level status.
-     *
-     * @return array{driver: string|null, reachable: bool, stored: int, pending: int, failed: int, bytes: int}
+     * Resolved off the guard rather than route middleware, because the route
+     * has to stay reachable without a token at all.
      */
-    private function storage(): array
+    private function isTrusted(): bool
+    {
+        $tenant = Auth::guard('sanctum')->user();
+
+        return $tenant instanceof Tenant && $tenant->isActive();
+    }
+
+    /**
+     * One existence probe rather than a write: a single HEAD, enough to catch
+     * the failures that happen (wrong endpoint, expired credentials, deleted
+     * bucket). Storage down is a full /resolve outage now that the bytes are
+     * ours, so it belongs in the public status.
+     */
+    private function storageReachable(): bool
+    {
+        try {
+            Storage::disk((string) config('media.storage.disk', 'media'))->exists('.probe');
+
+            return true;
+        } catch (Throwable) {
+            return false;
+        }
+    }
+
+    /**
+     * Kept out of the public probe for two reasons: it names the deployment's
+     * size, and it costs an aggregate over every stored row on an endpoint
+     * anyone can call.
+     *
+     * @return array{driver: string|null, stored: int, pending: int, failed: int, bytes: int}
+     */
+    private function storageDetail(): array
     {
         $disk = (string) config('media.storage.disk', 'media');
 
-        try {
-            Storage::disk($disk)->exists('.probe');
-            $reachable = true;
-        } catch (Throwable) {
-            $reachable = false;
-        }
+        // One grouped pass rather than four aggregates.
+        $counts = MediaAsset::query()
+            ->selectRaw('status, count(*) as asset_count, coalesce(sum(bytes), 0) as bytes')
+            ->groupBy('status')
+            ->get()
+            ->keyBy(fn (MediaAsset $row) => $row->status->value);
+
+        $rows = fn (AssetStatus ...$statuses) => array_sum(array_map(
+            fn (AssetStatus $status) => (int) ($counts[$status->value]->asset_count ?? 0),
+            $statuses,
+        ));
 
         return [
             'driver' => config("filesystems.disks.{$disk}.driver"),
-            'reachable' => $reachable,
-            'stored' => MediaAsset::query()->where('status', AssetStatus::Stored)->count(),
-            'pending' => MediaAsset::query()->whereIn('status', [AssetStatus::Pending, AssetStatus::Downloading])->count(),
-            // A rising count here is the signal that downloads are broken,
-            // which resolve alone would not show: resolve keeps succeeding and
-            // the failure only surfaces when a client tries to download.
-            'failed' => MediaAsset::query()->where('status', AssetStatus::Failed)->count(),
-            'bytes' => (int) MediaAsset::query()->where('status', AssetStatus::Stored)->sum('bytes'),
+            'stored' => $rows(AssetStatus::Stored),
+            'pending' => $rows(AssetStatus::Pending, AssetStatus::Downloading),
+            // A rising count means downloads are broken, which resolve alone
+            // never shows: it keeps succeeding right up to the transfer.
+            'failed' => $rows(AssetStatus::Failed),
+            'bytes' => (int) ($counts[AssetStatus::Stored->value]->bytes ?? 0),
         ];
     }
 }

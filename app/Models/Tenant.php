@@ -2,7 +2,6 @@
 
 namespace App\Models;
 
-use App\Tenancy\TenantStatus;
 use Database\Factories\TenantFactory;
 use Illuminate\Contracts\Auth\Authenticatable;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
@@ -13,10 +12,9 @@ use Laravel\Sanctum\HasApiTokens;
 use LogicException;
 
 /**
- * A consuming application, not a human account.
- *
- * Tenants authenticate with Sanctum tokens whose abilities act as scopes, so a
- * discovery-only consumer cannot spend resolver capacity and vice versa.
+ * A consuming application, not a human account. Authenticates with Sanctum
+ * tokens whose abilities act as scopes, so a discovery-only consumer cannot
+ * spend resolver capacity and vice versa.
  *
  * @property int $id
  * @property string $name
@@ -31,6 +29,7 @@ use LogicException;
  * @property array<string, mixed>|null $settings
  * @property Carbon|null $created_at
  * @property Carbon|null $updated_at
+ * @property-read int|null $tokens_count Present only when loaded with `withCount('tokens')`.
  */
 #[Fillable([
     'name',
@@ -54,16 +53,33 @@ class Tenant extends Model implements Authenticatable
     public const ABILITY_DISCOVER = 'discover';
 
     /**
-     * Tenants are the resolved user of the `api` guard, so they have to satisfy
-     * the contract the guard is typed against. Anything that reaches for
-     * `Auth::id()` during a request otherwise fatals: Pail does exactly that on
-     * every log line, which turned any logged error on an authenticated request
-     * into a 500 with the real cause buried underneath.
+     * Whether a slug is free to claim.
      *
-     * Implemented directly rather than by using the Authenticatable trait,
-     * because that trait assumes a password column and a remember token. A
-     * tenant has neither, and claiming otherwise would be a lie that only
-     * surfaces the first time something tries to use them.
+     * Two tenants sharing one would make `tenant:token <slug>` ambiguous, and
+     * an operator could not tell which application they had just credentialled.
+     */
+    public static function slugIsAvailable(string $slug): bool
+    {
+        return ! self::query()->where('slug', $slug)->exists();
+    }
+
+    /**
+     * Every ability a token may carry, and the default grant.
+     *
+     * @return array<int, string>
+     */
+    public static function abilities(): array
+    {
+        return [self::ABILITY_RESOLVE, self::ABILITY_DISCOVER];
+    }
+
+    /**
+     * Tenants are the resolved user of the `api` guard, so they must satisfy
+     * its contract: anything reaching for `Auth::id()` otherwise fatals, as
+     * Pail does on every log line.
+     *
+     * Implemented directly rather than with the Authenticatable trait, which
+     * assumes a password column and a remember token. A tenant has neither.
      */
     public function getAuthIdentifierName(): string
     {
@@ -87,9 +103,8 @@ class Tenant extends Model implements Authenticatable
 
     public function getRememberToken(): ?string
     {
-        // Not throwing: sessions legitimately ask, and "no token" is a truthful
-        // answer for a consumer that authenticates with a bearer token on every
-        // request.
+        // Not throwing: sessions legitimately ask, and "no token" is truthful
+        // for a consumer that sends a bearer token on every request.
         return null;
     }
 

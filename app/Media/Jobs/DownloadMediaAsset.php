@@ -6,7 +6,6 @@ use App\Api\ErrorCode;
 use App\Api\Exceptions\ApiException;
 use App\Media\Data\AssetStatus;
 use App\Media\Storage\AssetKey;
-use App\Media\Storage\AssetPathBuilder;
 use App\Media\Storage\DownloadedFile;
 use App\Media\Storage\MediaAssetRepository;
 use App\Media\Storage\MediaDownloader;
@@ -22,15 +21,13 @@ use Throwable;
 /**
  * Fetches one media file and puts it on the media disk.
  *
- * Runs on a queue because it cannot run anywhere else: the client's resolve
- * call has a 12s ceiling and a transfer takes longer than that on all but the
- * shortest clips. The resolve responds immediately with a signed URL and this
+ * On a queue because resolve has a 12s ceiling and a transfer takes longer than
+ * that on all but the shortest clips. Resolve answers with a signed URL; this
  * job makes that URL answer with bytes.
  *
- * Mutual exclusion is the row's, not the queue's. `ShouldBeUnique` only
- * collapses a dispatch storm; the guarantee that one file is downloaded once
- * comes from the conditional update in `claim()`, which holds even across
- * workers on different hosts and even if the unique lock has expired.
+ * Mutual exclusion is the row's, not the queue's: `ShouldBeUnique` only
+ * collapses a dispatch storm, while `claim()`'s conditional update holds across
+ * workers on different hosts even after the unique lock expires.
  */
 final class DownloadMediaAsset implements ShouldBeUnique, ShouldQueue
 {
@@ -43,10 +40,7 @@ final class DownloadMediaAsset implements ShouldBeUnique, ShouldQueue
 
     public function __construct(
         private readonly string $assetKey,
-        /**
-         * The page URL, carried in the job payload rather than stored on the
-         * asset row. It is transient by nature and disappears with the job.
-         */
+        /** The page URL, transient by nature, so it lives with the job. */
         private readonly string $sourceUrl,
         private readonly string $formatId,
     ) {
@@ -73,7 +67,6 @@ final class DownloadMediaAsset implements ShouldBeUnique, ShouldQueue
         MediaAssetRepository $assets,
         MediaDownloader $downloader,
         YtDlpErrorClassifier $classifier,
-        AssetPathBuilder $paths,
     ): void {
         $asset = $assets->findByKey(AssetKey::fromString($this->assetKey));
 
@@ -86,8 +79,7 @@ final class DownloadMediaAsset implements ShouldBeUnique, ShouldQueue
             maxAttempts: (int) config('media.storage.max_attempts', 3),
             staleAfter: (int) config('media.storage.claim_stale_after', 900),
         )) {
-            // Someone else holds it, or it has exhausted its attempts. Either
-            // way there is nothing useful for this worker to do.
+            // Held elsewhere, or out of attempts. Nothing to do.
             return;
         }
 
@@ -98,21 +90,19 @@ final class DownloadMediaAsset implements ShouldBeUnique, ShouldQueue
                 sourceUrl: $this->sourceUrl,
                 formatId: $this->formatId,
                 destination: $temporary,
-                // The tenant's own max_bytes was already enforced at resolve
-                // time, against the size the extractor declared. This is the
-                // deployment-wide ceiling, and it applies to a file that is
-                // shared by every tenant.
+                // The tenant's max_bytes was enforced at resolve time. This is
+                // the deployment-wide ceiling on a file shared by all tenants.
                 maxBytes: (int) config('media.storage.max_bytes', 524_288_000),
             );
 
-            $this->store($assets, $paths, $asset, $file);
+            $this->store($assets, $asset, $file);
         } catch (YtDlpFailed $e) {
             $this->fail($assets, $asset, $classifier->classify($e));
         } catch (ApiException $e) {
             $this->fail($assets, $asset, $e);
         } finally {
-            // A temporary file left behind on every failure would fill the disk
-            // long before the assets themselves did.
+            // Left behind on every failure, these fill the disk long before
+            // the assets do.
             if (is_file($temporary)) {
                 unlink($temporary);
             }
@@ -122,19 +112,17 @@ final class DownloadMediaAsset implements ShouldBeUnique, ShouldQueue
     /**
      * Stream the finished file onto the media disk.
      *
-     * The path is derived here rather than read off the row, so the recorded
-     * location always describes the file this job actually wrote. The resolve
-     * records what format was chosen; this records where it landed.
+     * The path is derived here, not read off the row, so the recorded location
+     * always describes the file this job actually wrote.
      */
     private function store(
         MediaAssetRepository $assets,
-        AssetPathBuilder $paths,
         MediaAsset $asset,
         DownloadedFile $file,
     ): void {
         $disk = (string) config('media.storage.disk', 'media');
 
-        $path = $paths->build(
+        $path = AssetKey::storagePath(
             provider: $asset->provider,
             providerVideoId: $asset->provider_video_id,
             formatId: $this->formatId,
@@ -148,8 +136,8 @@ final class DownloadMediaAsset implements ShouldBeUnique, ShouldQueue
         }
 
         try {
-            // writeStream, never put: on S3 this becomes a multipart upload, so
-            // a 500MB file never has to fit in PHP's memory limit.
+            // writeStream, never put: a multipart upload on S3, so a 500MB
+            // file never has to fit in PHP's memory limit.
             Storage::disk($disk)->writeStream($path, $handle);
         } finally {
             fclose($handle);
@@ -167,17 +155,17 @@ final class DownloadMediaAsset implements ShouldBeUnique, ShouldQueue
     /**
      * Record the failure, and decide whether it is worth trying again.
      *
-     * The row is marked failed *before* rethrowing so the next queue attempt
-     * finds a claimable row. Leaving it in `downloading` would make the retry a
-     * silent no-op until the stale-claim window expired.
+     * Marked failed *before* rethrowing so the next queue attempt finds a
+     * claimable row; leaving it `downloading` makes the retry a silent no-op
+     * until the stale-claim window expires.
      */
     private function fail(MediaAssetRepository $assets, MediaAsset $asset, ApiException $e): void
     {
         $assets->markFailed($asset, $e->errorCode);
 
         if (! $e->errorCode->isRetryable()) {
-            // Private, removed, region-blocked, too large: retrying spends the
-            // remaining attempts to reach the same answer.
+            // Private, removed, region-blocked, too large: retrying just
+            // spends the remaining attempts on the same answer.
             return;
         }
 

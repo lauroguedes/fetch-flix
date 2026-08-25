@@ -3,7 +3,7 @@
 use App\Api\Exceptions\ApiException;
 use App\Media\Data\AssetStatus;
 use App\Media\Jobs\DownloadMediaAsset;
-use App\Media\Storage\AssetPathBuilder;
+use App\Media\Storage\AssetKey;
 use App\Media\Storage\MediaDownloader;
 use App\Models\MediaAsset;
 use Illuminate\Support\Facades\Storage;
@@ -42,7 +42,7 @@ it('stores the downloaded file and records where it landed', function () {
     runDownload($asset, FakeMediaDownloader::writing('video-bytes'));
 
     $stored = $asset->fresh();
-    $expected = (new AssetPathBuilder)->build('youtube', 'dQw4w9WgXcQ', '18', 'mp4');
+    $expected = AssetKey::storagePath('youtube', 'dQw4w9WgXcQ', '18', 'mp4');
 
     expect($stored->status)->toBe(AssetStatus::Stored)
         ->and($stored->path)->toBe($expected)

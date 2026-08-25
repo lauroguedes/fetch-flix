@@ -1,9 +1,7 @@
 <?php
 
-use App\Media\Events\BotDetected;
-use App\Media\Listeners\ReportBotDetection;
-use App\Media\Listeners\ReportExtractorBroken;
 use App\Media\Storage\MediaDownloader;
+use App\Media\YtDlp\ExtractorReport;
 use App\Media\YtDlp\YtDlpErrorClassifier;
 use App\Media\YtDlp\YtDlpFailed;
 use App\Media\YtDlp\YtDlpRunner;
@@ -13,9 +11,15 @@ use App\Models\Tenant;
 use App\Models\UsageRecord;
 use App\Models\VideoCategory;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Testing\TestResponse;
 use Tests\Support\FakeMediaDownloader;
 use Tests\Support\FakeYtDlpRunner;
 use Tests\Support\YouTubeApiFake;
+
+function healthAsTenant(): TestResponse
+{
+    return actingAsTenant(Tenant::factory()->create(), label: 'probe')->getJson('/api/v1/health');
+}
 
 it('serves health without a token', function () {
     // Must stay reachable when token issuance or the database is the thing that
@@ -24,8 +28,38 @@ it('serves health without a token', function () {
         ->assertOk()
         ->assertJsonStructure([
             'status',
+            'extractor' => ['state'],
+            'storage' => ['reachable'],
+            'request_id',
+        ]);
+});
+
+it('withholds operational detail from an anonymous probe', function () {
+    // The detail fingerprints the deployment and, via quota_remaining, lets an
+    // outsider time an exhaustion attack on a budget shared by every consumer.
+    ExtractorHealth::factory()->create();
+    MediaAsset::factory()->stored()->create(['bytes' => 1024]);
+
+    $body = $this->getJson('/api/v1/health')->assertOk()->json();
+
+    expect($body)->not->toHaveKey('discovery')
+        ->and($body['extractor'])->not->toHaveKey('yt_dlp_version')
+        ->and($body['extractor'])->not->toHaveKey('bot_checks_last_hour')
+        ->and($body['storage'])->not->toHaveKey('bytes')
+        ->and($body['storage'])->not->toHaveKey('driver');
+});
+
+it('reveals the detail to a tenant token on the same url', function () {
+    // Monitoring keeps one endpoint and simply presents credentials.
+    ExtractorHealth::factory()->create();
+
+    healthAsTenant()
+        ->assertOk()
+        ->assertJsonStructure([
+            'status',
             'extractor' => ['state', 'yt_dlp_version', 'checked_at', 'failure_code', 'failures_last_hour', 'bot_checks_last_hour'],
             'discovery' => ['quota_remaining', 'quota_resets_in'],
+            'storage' => ['reachable', 'driver', 'stored', 'pending', 'failed', 'bytes'],
             'request_id',
         ]);
 });
@@ -33,11 +67,14 @@ it('serves health without a token', function () {
 it('reports degraded when the last self-test failed', function () {
     ExtractorHealth::factory()->broken()->create();
 
+    // State and status are public: a monitor must see "degraded" without a
+    // token. The reason why is detail.
     $this->getJson('/api/v1/health')
         ->assertOk()
         ->assertJsonPath('status', 'degraded')
-        ->assertJsonPath('extractor.state', 'broken')
-        ->assertJsonPath('extractor.failure_code', 'resolver_unavailable');
+        ->assertJsonPath('extractor.state', 'broken');
+
+    healthAsTenant()->assertJsonPath('extractor.failure_code', 'resolver_unavailable');
 });
 
 it('reports unknown rather than healthy when no check has run', function () {
@@ -47,16 +84,16 @@ it('reports unknown rather than healthy when no check has run', function () {
 });
 
 it('surfaces the bot check rate that drives mitigation decisions', function () {
-    (new ReportBotDetection)->handle(new BotDetected("Sign in to confirm you're not a bot"));
-    (new ReportBotDetection)->handle(new BotDetected("Sign in to confirm you're not a bot"));
+    ExtractorReport::botCheck("Sign in to confirm you're not a bot");
+    ExtractorReport::botCheck("Sign in to confirm you're not a bot");
 
-    $this->getJson('/api/v1/health')->assertJsonPath('extractor.bot_checks_last_hour', 2);
+    healthAsTenant()->assertJsonPath('extractor.bot_checks_last_hour', 2);
 });
 
 it('counts unclassified extractor failures through the real classifier', function () {
     (new YtDlpErrorClassifier)->classify(new YtDlpFailed(stderr: 'ERROR: never seen before', exitCode: 1));
 
-    expect(ReportExtractorBroken::countThisHour())->toBe(1);
+    expect(ExtractorReport::breakagesThisHour())->toBe(1);
 });
 
 it('does not count an ordinary permanent failure as extractor breakage', function () {
@@ -64,7 +101,7 @@ it('does not count an ordinary permanent failure as extractor breakage', functio
 
     // A deleted video is not a broken extractor; alerting on it buries the
     // signal that matters.
-    expect(ReportExtractorBroken::countThisHour())->toBe(0);
+    expect(ExtractorReport::breakagesThisHour())->toBe(0);
 });
 
 it('records a self-test result', function () {
@@ -229,7 +266,7 @@ it('reports storage state on the health probe', function () {
     MediaAsset::factory()->stored()->create(['bytes' => 1024]);
     MediaAsset::factory()->failed()->create();
 
-    $this->getJson('/api/v1/health')
+    healthAsTenant()
         ->assertOk()
         ->assertJsonPath('storage.reachable', true)
         ->assertJsonPath('storage.driver', 'local')

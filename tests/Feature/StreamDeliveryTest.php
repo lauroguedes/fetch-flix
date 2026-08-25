@@ -1,7 +1,7 @@
 <?php
 
 use App\Media\Data\AssetStatus;
-use App\Media\Storage\SignedStreamUrl;
+use App\Media\Storage\AssetStore;
 use App\Models\MediaAsset;
 use Illuminate\Filesystem\FilesystemAdapter;
 use Illuminate\Support\Facades\Storage;
@@ -27,7 +27,7 @@ function storedAsset(array $attributes = []): MediaAsset
 
 function streamUrl(MediaAsset $asset): string
 {
-    return app(SignedStreamUrl::class)->mint($asset->asset_key)['url'];
+    return app(AssetStore::class)->signedUrl($asset->asset_key)['url'];
 }
 
 it('serves the stored file with no token at all', function () {
@@ -39,6 +39,19 @@ it('serves the stored file with no token at all', function () {
         ->assertHeader('Content-Type', 'video/mp4');
 
     expect($response->streamedContent())->toBe('video-bytes');
+});
+
+it('accepts a link minted under a different scheme and host', function () {
+    // The failure this prevents: a queue worker has no request, so it signs
+    // with `app.url`, and that envelope is served from the cross-tenant cache
+    // to callers arriving over the proxy's https host. While the signature
+    // covered scheme and host, every one of those downloads 403'd for the life
+    // of the cache entry. It covers only the path and query now.
+    $link = streamUrl(storedAsset());
+
+    expect($link)->toStartWith('/api/v1/stream/');
+
+    $this->get('https://served-from-anywhere.test'.$link)->assertOk();
 });
 
 it('honours a byte range so players can seek', function () {
@@ -212,4 +225,20 @@ it('records that the file was wanted', function () {
     $this->get(streamUrl($asset))->assertOk();
 
     expect($asset->fresh()->last_accessed_at->isToday())->toBeTrue();
+});
+
+it('rate limits the delivery endpoint', function () {
+    // Unauthenticated and, for an asset still downloading, able to hold a PHP
+    // worker for the whole wait window. Without a ceiling a few dozen
+    // concurrent callers exhaust the pool and take the service down.
+    $url = streamUrl(storedAsset());
+
+    for ($i = 0; $i < 120; $i++) {
+        $this->get($url)->assertOk();
+    }
+
+    $this->get($url)
+        ->assertStatus(429)
+        ->assertJsonPath('code', 'rate_limited')
+        ->assertHeader('Retry-After');
 });

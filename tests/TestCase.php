@@ -4,6 +4,7 @@ namespace Tests;
 
 use App\Media\Storage\MediaDownloader;
 use Illuminate\Foundation\Testing\TestCase as BaseTestCase;
+use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Storage;
 use Tests\Support\FakeMediaDownloader;
 
@@ -22,6 +23,13 @@ abstract class TestCase extends BaseTestCase
     protected function setUp(): void
     {
         parent::setUp();
+
+        // Nothing here reaches the internet unless a test faked it first. This
+        // is not belt-and-braces: a discovery test that forgets its fake spends
+        // 100 units of a real, shared daily quota, and `DataApiClient` catches
+        // Throwable — so the call would be swallowed into a 503 and look like a
+        // configuration problem rather than a bill.
+        Http::preventStrayRequests();
 
         $this->app->instance(MediaDownloader::class, FakeMediaDownloader::writing());
 

@@ -11,11 +11,12 @@ use RuntimeException;
 use Throwable;
 
 /**
- * The only exception type that renders as a client-facing API error.
+ * The only exception type that renders as a client-facing API error, so the
+ * envelope has exactly one implementation. Anything else that escapes becomes a
+ * ResolverUnavailable via the handler, never a raw 500 with a stack trace.
  *
- * Everything on the /api/v1 surface funnels through here so that the error
- * envelope has exactly one implementation. Anything else that escapes becomes
- * a ResolverUnavailable via the handler, never a raw 500 with a stack trace.
+ * The named constructors below all take an optional `$context` of internal
+ * diagnostics, which is logged and never serialized to the client.
  */
 class ApiException extends RuntimeException
 {
@@ -84,9 +85,9 @@ class ApiException extends RuntimeException
     }
 
     /**
-     * @param  string|null  $scope  'tenant' or 'global'; surfaced as X-Quota-Scope so a
-     *                              consumer can tell "I spent my allowance" from
-     *                              "the whole project is out today".
+     * @param  string|null  $scope  'tenant' or 'global', surfaced as
+     *                              X-Quota-Scope so a consumer can tell "I spent
+     *                              my allowance" from "the project is out today"
      */
     public static function rateLimited(int $retryAfter, ?string $scope = null, ?string $message = null): self
     {
@@ -128,10 +129,8 @@ class ApiException extends RuntimeException
     }
 
     /**
-     * Render the shared error envelope.
-     *
-     * Shape is fixed by the client contract: status, code, message, retry_after,
-     * request_id. Every key is always present; retry_after is null rather than
+     * Render the shared error envelope. The shape is fixed by the client
+     * contract and every key is always present: retry_after is null rather than
      * omitted on permanent conditions.
      */
     public function toResponse(Request $request): JsonResponse

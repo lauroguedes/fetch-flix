@@ -48,13 +48,17 @@ return [
     | Expiration Minutes
     |--------------------------------------------------------------------------
     |
-    | This value controls the number of minutes until an issued token will be
-    | considered expired. This will override any values set in the token's
-    | "expires_at" attribute, but first-party sessions are not affected.
+    | A ceiling on every token, measured from when it was issued. Tokens are
+    | handed to consuming applications by an operator and there is no self-serve
+    | refresh, so this is deliberately long — but not null: a leaked token that
+    | never expires is a door that never closes.
+    |
+    | `tenant:token --expires-in-days` sets a tighter per-token expiry. Both are
+    | enforced, and the stricter one wins.
     |
     */
 
-    'expiration' => null,
+    'expiration' => (int) env('SANCTUM_TOKEN_EXPIRATION', 525600),
 
     /*
     |--------------------------------------------------------------------------

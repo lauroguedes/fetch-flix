@@ -123,4 +123,22 @@ return [
         'store' => env('APP_MAINTENANCE_STORE', 'database'),
     ],
 
+    /*
+    |--------------------------------------------------------------------------
+    | Trusted Proxies
+    |--------------------------------------------------------------------------
+    |
+    | Which hops may set X-Forwarded-*. Read by bootstrap/app.php, and here
+    | rather than there because `env()` returns null once the config is cached,
+    | which would quietly leave production trusting nothing.
+    |
+    | The unauthenticated rate limits are keyed by client address, so trusting a
+    | hop that is not really in front of the app lets a caller rotate past them.
+    | The default covers nginx on the same host; put a CDN's ranges here, or "*"
+    | if the app is genuinely unreachable except through a proxy.
+    |
+    */
+
+    'trusted_proxies' => env('TRUSTED_PROXIES', '127.0.0.1,::1'),
+
 ];

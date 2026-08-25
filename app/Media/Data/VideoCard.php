@@ -14,12 +14,23 @@ final readonly class VideoCard
         public ?int $durationMs,
         public ?string $thumbnailUrl,
         /**
-         * Never null by the time this reaches a client. Consumers size a player
-         * frame before anything loads, and short-form video is 9:16, so a
-         * missing dimension renders every portrait clip into a landscape box.
+         * Never null by the time this reaches a client: consumers size a player
+         * frame before anything loads, so a missing dimension renders every
+         * portrait clip into a landscape box.
          */
         public int $width,
         public int $height,
+        /** Which provider this id belongs to, and which URL shape `url` follows. */
+        public string $provider = 'youtube',
+        /**
+         * The canonical page URL, ready to hand back to POST /v1/resolve.
+         *
+         * Carried on the card rather than derived at render time: the provider
+         * that produced the id is the only thing that knows how to turn one
+         * back into a URL, and it is out of scope by the time a response is
+         * serialized. Built once here, it is also cached with the page.
+         */
+        public string $url = '',
     ) {}
 
     /**
@@ -35,6 +46,8 @@ final readonly class VideoCard
             'thumbnail_url' => $this->thumbnailUrl,
             'width' => $this->width,
             'height' => $this->height,
+            'provider' => $this->provider,
+            'url' => $this->url,
         ];
     }
 
@@ -51,6 +64,8 @@ final readonly class VideoCard
             thumbnailUrl: $data['thumbnail_url'] ?? null,
             width: (int) $data['width'],
             height: (int) $data['height'],
+            provider: (string) $data['provider'],
+            url: (string) $data['url'],
         );
     }
 
@@ -64,6 +79,8 @@ final readonly class VideoCard
             thumbnailUrl: $this->thumbnailUrl,
             width: $dimensions->width,
             height: $dimensions->height,
+            provider: $this->provider,
+            url: $this->url,
         );
     }
 }

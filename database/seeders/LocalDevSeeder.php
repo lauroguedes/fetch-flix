@@ -3,7 +3,7 @@
 namespace Database\Seeders;
 
 use App\Models\Tenant;
-use App\Tenancy\TenantStatus;
+use App\Models\TenantStatus;
 use Illuminate\Database\Seeder;
 
 /**

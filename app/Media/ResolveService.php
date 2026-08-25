@@ -5,8 +5,8 @@ namespace App\Media;
 use App\Api\Exceptions\ApiException;
 use App\Media\Data\MediaRequest;
 use App\Media\Data\ResolvedMedia;
-use App\Media\Delivery\MediaDelivery;
 use App\Media\Jobs\ResolveMediaJob;
+use App\Media\Storage\AssetStore;
 use App\Models\Tenant;
 use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Support\Facades\Cache;
@@ -14,34 +14,31 @@ use Illuminate\Support\Facades\Cache;
 /**
  * Orchestrates a single synchronous resolve.
  *
- * Resolution is synchronous by design. The client is already built against a
- * 200-with-media response and has no polling branch, so turning this into
- * accept-then-poll would break the consumer that already exists. Everything
- * here is about staying inside its 12s ceiling and making a miss cheap rather
- * than fatal.
+ * Synchronous by design: the client is built against a 200-with-media response
+ * and has no polling branch. Everything here is about staying inside its 12s
+ * ceiling and making a miss cheap rather than fatal.
  */
 final class ResolveService
 {
     public function __construct(
         private readonly ProviderRegistry $registry,
-        private readonly MediaDelivery $delivery,
+        private readonly AssetStore $assets,
     ) {}
 
     public function resolve(Tenant $tenant, MediaRequest $request, string $requestId): ResolvedMedia
     {
         $dedupeKey = $this->dedupeKey($tenant, $requestId);
 
-        // Clients reuse X-Request-Id across their own retries. Replaying the
-        // stored envelope is what makes the retry after a timeout cheap instead
-        // of a second expensive extraction for one user action.
+        // Clients reuse X-Request-Id across retries, so replaying the stored
+        // envelope saves a second expensive extraction for one user action.
         if ($replay = $this->readCached($dedupeKey)) {
             return $replay;
         }
 
-        $provider = $this->registry->resolverFor($request->url);
+        $provider = $this->registry->forUrl($request->url);
         $providerId = $provider->normalizeId($request->url);
         $fingerprint = $request->fingerprint($provider->slug(), $providerId);
-        $sharedKey = $this->sharedKey($fingerprint);
+        $sharedKey = self::sharedKey($fingerprint);
 
         // Shared across tenants: the same video at the same height is the same
         // extraction no matter who asks.
@@ -51,11 +48,10 @@ final class ResolveService
             return $shared;
         }
 
-        // Behind the cache but ahead of extraction: when the file is already on
-        // our disk there is nothing to extract, and this turns an 8s process
-        // spawn into an indexed read. Survives a cache flush, which the two
-        // lookups above do not.
-        if ($stored = $this->delivery->cached($provider->slug(), $providerId, $request)) {
+        // Behind the cache but ahead of extraction: a file already on our disk
+        // turns an 8s process spawn into an indexed read. Survives a cache
+        // flush, which the two lookups above do not.
+        if ($stored = $this->assets->cached($provider->slug(), $providerId, $request)) {
             $this->remember($sharedKey, $stored, $this->sharedTtl($stored));
             $this->remember($dedupeKey, $stored, $this->dedupeTtl($stored));
 
@@ -67,10 +63,9 @@ final class ResolveService
         try {
             $lock->block((int) config('media.resolve.lock_wait', 3));
         } catch (LockTimeoutException) {
-            // Another request is already extracting this exact video. Waiting
-            // longer would push us past the client's ceiling, so tell it to
-            // retry: by then the in-flight extraction will have populated the
-            // shared cache and the retry returns immediately.
+            // Another request is already extracting this video. Waiting longer
+            // would blow the client's ceiling; by the time it retries the
+            // in-flight extraction has populated the shared cache.
             throw ApiException::resolverUnavailable(
                 retryAfter: 2,
                 message: 'This media is already being resolved. Please retry shortly.',
@@ -87,17 +82,11 @@ final class ResolveService
             }
 
             try {
-                $resolved = $this->delivery->prepare($provider->resolve($request), $request);
+                $resolved = $this->extractAndCache($request, $fingerprint, $provider);
             } catch (ApiException $e) {
                 $this->handleTimeout($e, $request, $fingerprint);
 
                 throw $e;
-            }
-
-            $ttl = $this->sharedTtl($resolved);
-
-            if ($ttl > 0) {
-                $this->remember($sharedKey, $resolved, $ttl);
             }
 
             $this->remember($dedupeKey, $resolved, $this->dedupeTtl($resolved));
@@ -109,12 +98,31 @@ final class ResolveService
     }
 
     /**
-     * A deadline miss must not throw the work away.
+     * Extract, prepare for delivery, and write the shared cache entry.
      *
-     * The extraction is re-run on a queue and its result written to the shared
-     * cache, so the client's retry a couple of seconds later hits a warm cache
-     * and returns immediately. This is the async escape hatch, and it is
-     * invisible to the contract.
+     * Public for the queued fallback, which has to produce the same envelope
+     * the synchronous path does: caching the provider's own result instead
+     * would hand a later caller an IP-bound URL that answers 403.
+     *
+     * @param  Provider|null  $provider  Passed by the synchronous path, which
+     *                                   already matched the URL; the queued
+     *                                   fallback starts from nothing and looks
+     *                                   it up here.
+     */
+    public function extractAndCache(MediaRequest $request, string $fingerprint, ?Provider $provider = null): ResolvedMedia
+    {
+        $provider ??= $this->registry->forUrl($request->url);
+        $resolved = $this->assets->prepare($provider->resolve($request), $request);
+
+        $this->remember(self::sharedKey($fingerprint), $resolved, $this->sharedTtl($resolved));
+
+        return $resolved;
+    }
+
+    /**
+     * A deadline miss must not throw the work away: the extraction is re-run on
+     * a queue so the client's retry hits a warm cache. Invisible to the
+     * contract.
      */
     private function handleTimeout(ApiException $e, MediaRequest $request, string $fingerprint): void
     {
@@ -135,8 +143,8 @@ final class ResolveService
 
         $resolved = ResolvedMedia::fromArray($payload);
 
-        // A cached entry whose URL has expired is worthless: handing it back
-        // would surface to the user as an unexplained download failure.
+        // An expired entry is worthless: handing it back surfaces as an
+        // unexplained download failure.
         if ($resolved->media->isExpired()) {
             Cache::forget($key);
 
@@ -154,7 +162,8 @@ final class ResolveService
     }
 
     /**
-     * Never outlive the URL itself, and never exceed the configured ceiling.
+     * Never outlives the URL itself, and never exceeds the ceiling: a cached
+     * entry whose URL has expired surfaces as an unexplained download failure.
      */
     private function sharedTtl(ResolvedMedia $media): int
     {
@@ -176,7 +185,8 @@ final class ResolveService
         return "resolve:req:{$tenant->id}:".sha1($requestId);
     }
 
-    private function sharedKey(string $fingerprint): string
+    /** Shared across tenants: same video, same height, same extraction. */
+    private static function sharedKey(string $fingerprint): string
     {
         return "resolve:media:{$fingerprint}";
     }

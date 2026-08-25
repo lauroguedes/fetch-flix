@@ -28,6 +28,10 @@ use Illuminate\Support\Facades\Storage;
 
 pest()->group('network');
 
+// TestCase blocks stray HTTP so a forgotten fake cannot spend real quota. This
+// file is the one place that wants the network, so it opts back in explicitly.
+beforeEach(fn () => Http::allowStrayRequests());
+
 it('returns a url that actually downloads with the headers it returns', function () {
     // The one assertion the fixture suite cannot make: that the headers we pass
     // through are sufficient for the CDN to serve the bytes.
@@ -35,7 +39,7 @@ it('returns a url that actually downloads with the headers it returns', function
     // Its own video, and first in the file: see the note below on why order
     // matters here.
     $url = 'https://www.youtube.com/watch?v=jNQXAC9IVRw';
-    $provider = app(ProviderRegistry::class)->resolverFor($url);
+    $provider = app(ProviderRegistry::class)->forUrl($url);
 
     $resolved = $provider->resolve(new MediaRequest(url: $url, maxHeight: 360));
 
@@ -80,7 +84,7 @@ it('still finds a genuinely progressive stream on the live site', function () {
     // If this starts failing, YouTube has removed the last muxed format and the
     // degradation strategy no longer has anything to degrade to. That is a
     // product decision, not a bug fix, so it should fail loudly here first.
-    $provider = app(ProviderRegistry::class)->resolverFor('https://www.youtube.com/watch?v=dQw4w9WgXcQ');
+    $provider = app(ProviderRegistry::class)->forUrl('https://www.youtube.com/watch?v=dQw4w9WgXcQ');
 
     $resolved = $provider->resolve(new MediaRequest(
         url: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ',
@@ -94,7 +98,7 @@ it('still finds a genuinely progressive stream on the live site', function () {
 });
 
 it('reports an expiry in the future that we parsed rather than guessed', function () {
-    $provider = app(ProviderRegistry::class)->resolverFor('https://www.youtube.com/watch?v=dQw4w9WgXcQ');
+    $provider = app(ProviderRegistry::class)->forUrl('https://www.youtube.com/watch?v=dQw4w9WgXcQ');
 
     $resolved = $provider->resolve(new MediaRequest(
         url: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ',
@@ -136,7 +140,7 @@ it('downloads and stores the control video end to end', function () {
     app()->instance(MediaDownloader::class, new YtDlpMediaDownloader);
 
     $url = 'https://www.youtube.com/watch?v=jNQXAC9IVRw';
-    $provider = app(ProviderRegistry::class)->resolverFor($url);
+    $provider = app(ProviderRegistry::class)->forUrl($url);
     $resolved = $provider->resolve(new MediaRequest($url, maxHeight: 360));
 
     $key = AssetKey::for('youtube', $resolved->id, 360, false);

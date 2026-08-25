@@ -34,16 +34,16 @@ return Application::configure(basePath: dirname(__DIR__))
             'ability' => CheckForAnyAbility::class,
         ]);
 
-        // Never redirect an unauthenticated API caller to a login page.
-        //
-        // Laravel's Authenticate middleware resolves route('login') for any
-        // request that does not look like JSON, and this application has no
-        // such route, so the RouteNotFoundException that follows was surfacing
-        // as a retryable 503 instead of a permanent 403. A client with a bad
-        // token would have retried it forever.
-        //
-        // Returning null keeps the AuthenticationException intact so it maps to
-        // `unauthorized` regardless of what Accept header the caller sent.
+        // Trusted proxies are set in AppServiceProvider, not here: this closure
+        // runs before the config is bound, and `env()` returns null once the
+        // config is cached — which would quietly leave production trusting no
+        // proxy at all.
+
+        // Never redirect an unauthenticated API caller to a login page: this
+        // app has no `login` route, so Authenticate's route() lookup threw a
+        // RouteNotFoundException that surfaced as a retryable 503 instead of a
+        // permanent 403. Returning null keeps the AuthenticationException
+        // intact whatever Accept header the caller sent.
         $middleware->redirectGuestsTo(
             fn (Request $request) => $request->is('api/*') ? null : '/login'
         );
@@ -53,16 +53,15 @@ return Application::configure(basePath: dirname(__DIR__))
             fn (Request $request) => $request->is('api/*') || $request->expectsJson(),
         );
 
-        // One callback, one envelope. See ExceptionMapper for why the mapping is
-        // centralised rather than split across per-type render callbacks.
+        // One callback, one envelope.
         $exceptions->render(function (Throwable $e, Request $request) {
             if (! $request->is('api/*')) {
                 return null;
             }
 
-            // A response that was already built is final. Laravel uses this to
-            // carry rate-limiter and abort() responses, and re-mapping one would
-            // discard a correct 429 into a generic 503.
+            // An already-built response is final: Laravel carries rate-limiter
+            // and abort() responses this way, and re-mapping one would discard
+            // a correct 429 into a generic 503.
             if ($e instanceof HttpResponseException) {
                 return $e->getResponse();
             }

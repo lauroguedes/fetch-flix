@@ -1,44 +1,41 @@
 <?php
 
-namespace App\Media\Delivery;
+namespace App\Media\Storage;
 
 use App\Api\Exceptions\ApiException;
 use App\Media\Data\MediaRequest;
 use App\Media\Data\MediaStream;
 use App\Media\Data\ResolvedMedia;
 use App\Media\Jobs\DownloadMediaAsset;
-use App\Media\Storage\AssetKey;
-use App\Media\Storage\MediaAssetRepository;
-use App\Media\Storage\SignedStreamUrl;
 use App\Models\MediaAsset;
+use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\URL;
 use Throwable;
 
 /**
- * Serves the media from our own storage, behind our own signed URL.
+ * The resolve path's view of stored media: answer from a file we already hold,
+ * or register one and queue its transfer. Either way it hands back an envelope
+ * pointing at a signed URL of ours.
  *
- * The reason this exists: a provider stream URL carries the IP that extracted
- * it and is signed against it. A server resolves, a phone on a different
- * network downloads, and the CDN answers 403. That is not fixable with headers
- * or retries — only by holding the bytes ourselves.
+ * A provider stream URL is signed against the IP that extracted it, so a server
+ * resolving and a phone downloading is a guaranteed 403. Holding the bytes
+ * ourselves is the only fix.
  *
- * What the client sees does not change shape. `media.url` is still a URL,
- * `media.headers` is still an object, `media.expires_at` is still a timestamp.
- * The difference is that all three are now ours: no IP binding, an expiry we
- * choose and can reissue, and no headers required at all.
+ * The client sees the same envelope: `media.url` is a URL, `media.headers` an
+ * object, `media.expires_at` a timestamp. All three are now ours. Serving those
+ * bytes is AssetDelivery's job, not this class's.
  */
-final class StorageDelivery implements MediaDelivery
+final class AssetStore
 {
     public function __construct(
         private readonly MediaAssetRepository $assets,
-        private readonly SignedStreamUrl $urls,
     ) {}
 
     /**
      * Answer from a file we already hold, without extracting.
      *
-     * The saving is the whole point of keying assets on the request rather than
-     * on the chosen format: an 8s yt-dlp process becomes one indexed read, for
-     * every tenant, for the life of the file.
+     * Turns a repeat resolve from an 8s yt-dlp process into one indexed read,
+     * for every tenant, for the life of the file.
      */
     public function cached(string $provider, string $providerId, MediaRequest $request): ?ResolvedMedia
     {
@@ -50,31 +47,27 @@ final class StorageDelivery implements MediaDelivery
             return null;
         }
 
-        // The stored file is shared across tenants, but the limits are not.
-        // They have to be re-applied here or a warm hit would quietly hand a
-        // tenant something its own configuration forbids.
+        // The file is shared across tenants but the limits are not, so they are
+        // re-applied here.
         $this->assertWithinLimits($asset, $request);
 
         return $this->envelope($asset, $request);
     }
 
     /**
-     * Register what was chosen, queue the transfer, and hand back a URL of ours.
+     * Register what was chosen, queue the transfer, hand back a URL of ours.
      *
-     * The URL is returned before the file exists. It has to be: the client
-     * calls resolve synchronously with a 12s ceiling and a transfer does not
-     * fit in that. The delivery endpoint absorbs the gap, and only ever for the
-     * first caller of a given video.
+     * The URL is returned before the file exists: resolve has a 12s ceiling and
+     * a transfer does not fit in it. The delivery endpoint absorbs the gap, and
+     * only for the first caller of a given video.
      */
     public function prepare(ResolvedMedia $resolved, MediaRequest $request): ResolvedMedia
     {
         $stream = $resolved->media;
 
         if ($stream->formatId === null) {
-            // Without a format id a queued download cannot pin itself to the
-            // stream this response just described, and might store something
-            // else. Falling back to the provider URL is worse than it sounds
-            // but better than storing the wrong file.
+            // Without a format id the queued download cannot pin itself to the
+            // stream this response described, and might store something else.
             return $resolved;
         }
 
@@ -101,14 +94,11 @@ final class StorageDelivery implements MediaDelivery
 
         if (! $asset->isServable()) {
             try {
-                // Idempotent by the job's unique id and, more importantly, by
-                // the conditional claim on the row itself.
                 DownloadMediaAsset::dispatch($asset->asset_key, $request->url, $stream->formatId);
             } catch (Throwable $e) {
                 // A queue that is down must not turn a good resolve into an
-                // error. The client already has a working URL; the row is still
-                // pending, so the next resolve for this variant dispatches
-                // again and the delivery endpoint reports honestly until then.
+                // error. The row stays pending, so the next resolve dispatches
+                // again and delivery reports honestly until then.
                 report($e);
             }
         }
@@ -117,11 +107,35 @@ final class StorageDelivery implements MediaDelivery
     }
 
     /**
-     * Rebuild the contracted envelope around a signed URL of ours.
+     * Our own signed route, never the bucket's pre-signed URL: local and
+     * production behave identically, switching storage provider does not change
+     * the contract, and the quoted expiry stays ours to reissue.
+     *
+     * Signed root-relative, and deliberately so. An absolute signature covers
+     * the scheme and host, which are not knowable everywhere this runs: a queue
+     * worker has no request and falls back to `app.url`, and the envelope it
+     * writes is then served from the cross-tenant cache to real requests. Any
+     * drift between the two — http behind an https proxy is the usual one —
+     * makes every download 403 for the life of the cache entry. A relative
+     * signature covers only the path and query, so there is nothing to drift.
+     *
+     * `ResolveResource` makes it absolute against whatever host is serving.
+     *
+     * @return array{url: string, expires_at: Carbon}
      */
+    public function signedUrl(string $assetKey): array
+    {
+        $expiresAt = Carbon::now()->addSeconds((int) config('media.storage.signed_ttl', 21600));
+
+        return [
+            'url' => URL::temporarySignedRoute('api.v1.stream', $expiresAt, ['asset' => $assetKey], absolute: false),
+            'expires_at' => $expiresAt,
+        ];
+    }
+
     private function envelope(MediaAsset $asset, MediaRequest $request): ResolvedMedia
     {
-        $signed = $this->urls->mint($asset->asset_key);
+        $signed = $this->signedUrl($asset->asset_key);
 
         $height = $asset->height;
         $degraded = $height !== null && $height < $request->maxHeight;
@@ -138,9 +152,8 @@ final class StorageDelivery implements MediaDelivery
                 mimeType: $asset->mime_type ?? 'application/octet-stream',
                 container: $asset->container ?? 'mp4',
 
-                // Exact once the file has landed; the extractor's estimate
-                // before that. Both are better than the null the contract
-                // tolerates.
+                // Exact once the file has landed, the extractor's estimate
+                // before that.
                 bytes: $asset->bytes,
 
                 width: $asset->width,
@@ -148,9 +161,8 @@ final class StorageDelivery implements MediaDelivery
                 hasAudio: $asset->has_audio,
                 hasVideo: $asset->has_video,
 
-                // Nothing to pass through: our own URL needs no Referer and no
-                // User-Agent. The key stays in the response as an empty object
-                // because the contract says it is always present.
+                // Our own URL needs no Referer and no User-Agent. The key stays
+                // as an empty object because the contract says it is present.
                 headers: [],
 
                 expiresAt: $signed['expires_at'],
@@ -162,7 +174,7 @@ final class StorageDelivery implements MediaDelivery
     }
 
     /**
-     * Re-apply the caller's own ceilings to a shared stored file.
+     * Re-apply the caller's ceilings to a shared stored file.
      */
     private function assertWithinLimits(MediaAsset $asset, MediaRequest $request): void
     {

@@ -3,7 +3,7 @@
 namespace Database\Factories;
 
 use App\Models\Tenant;
-use App\Tenancy\TenantStatus;
+use App\Models\TenantStatus;
 use Illuminate\Database\Eloquent\Factories\Factory;
 use Illuminate\Support\Str;
 

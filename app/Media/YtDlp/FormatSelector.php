@@ -9,21 +9,17 @@ use App\Media\Data\MediaStream;
 /**
  * Picks the one stream the client can actually use.
  *
- * `prefer: "progressive"` is a hard requirement, not a preference: the client
- * cannot merge separate DASH audio and video, so a muxed single file is the
- * only usable answer.
+ * `prefer: "progressive"` is a requirement, not a preference: the client cannot
+ * merge separate DASH audio and video.
  *
- * The subtle part is what "muxed single file" means against real yt-dlp output.
- * YouTube advertises an HLS ladder (itags 91-96) whose entries report
- * `ext: mp4` and carry both codecs, so a codec-only filter happily returns a
- * 1080p "mp4" whose URL is a .m3u8 playlist. Handing that to a client that
- * expects a downloadable file fails at transfer time with a confusing error.
- * Only `protocol: https` entries are real files, so that filter is load-bearing
- * and must not be relaxed.
+ * The trap is what "muxed single file" means against real yt-dlp output.
+ * YouTube's HLS ladder (itags 91-96) reports `ext: mp4` and carries both
+ * codecs, so a codec-only filter returns a 1080p "mp4" whose URL is an .m3u8
+ * playlist. Only `protocol: https` entries are real files — that filter is
+ * load-bearing and must not be relaxed.
  *
- * With itag 22 removed by YouTube, itag 18 (640x360) is routinely the only true
- * progressive format, which is why degradation is the normal path rather than
- * an edge case.
+ * With itag 22 removed, itag 18 (640x360) is routinely the only true
+ * progressive format, so degradation is the normal path, not an edge case.
  */
 final class FormatSelector
 {
@@ -65,8 +61,7 @@ final class FormatSelector
         ));
 
         if ($withinCeiling !== []) {
-            // Prefer mp4 for the widest client compatibility, but never at the
-            // cost of failing outright.
+            // Prefer mp4 for compatibility, never at the cost of failing.
             $mp4 = array_values(array_filter($withinCeiling, fn (array $f) => ($f['ext'] ?? null) === 'mp4'));
             $pool = $mp4 !== [] ? $mp4 : $withinCeiling;
 
@@ -78,10 +73,9 @@ final class FormatSelector
             return ['format' => $best, 'degraded' => $height < $request->maxHeight];
         }
 
-        // Everything available exceeds the requested ceiling. Returning the
-        // smallest one respects the intent of the ceiling better than erroring
-        // would, and the client sizes its frame from the truthful width/height
-        // we return regardless.
+        // Everything exceeds the ceiling. The smallest option respects its
+        // intent better than an error, and the client sizes its frame from the
+        // truthful width/height we return anyway.
         $smallest = $this->lowestQuality($candidates);
         $height = is_int($smallest['height'] ?? null) ? $smallest['height'] : 0;
 
@@ -123,11 +117,8 @@ final class FormatSelector
     }
 
     /**
-     * A real file we can hand to a downloader.
-     *
-     * Excludes m3u8_native (HLS playlists) and mhtml (storyboards), both of
-     * which appear in YouTube's format list and neither of which is a single
-     * downloadable media file.
+     * A real file we can hand to a downloader: excludes m3u8_native (HLS
+     * playlists) and mhtml (storyboards), both present in YouTube's list.
      *
      * @param  array<string, mixed>  $format
      */
@@ -240,11 +231,9 @@ final class FormatSelector
     }
 
     /**
-     * yt-dlp reports an exact filesize only for some formats; the muxed ones
-     * usually carry an approximation instead. The client uses this to refuse
-     * oversized downloads early, so an approximate value beats none.
-     */
-    /**
+     * Muxed formats usually carry only an approximate size. The client refuses
+     * oversized downloads early, so approximate beats nothing.
+     *
      * @param  array<string, mixed>  $format
      */
     private function bytes(array $format): ?int
@@ -286,9 +275,8 @@ final class FormatSelector
     }
 
     /**
-     * Passed to the client verbatim, minus the one header that actively breaks
-     * it: URLSession sets its own Accept-Encoding, and a conflicting value
-     * corrupts the response body.
+     * Verbatim, minus the one header that breaks the client: URLSession sets
+     * its own Accept-Encoding and a conflicting value corrupts the body.
      *
      * @param  array<string, mixed>  $format
      * @return array<string, string>

@@ -14,18 +14,13 @@ use Symfony\Component\Process\Process;
 use Throwable;
 
 /**
- * Proves the extractor still works against the live site.
+ * Proves the extractor still works against the live site, so a breakage is not
+ * first reported by a user hours later.
  *
- * yt-dlp breaks when YouTube changes, often weekly. Without this, the first
- * report of a broken extractor comes from a user, by which time every resolve
- * has been failing for hours.
- *
- * It transfers the file as well as resolving it, because the two fail
- * independently and the interesting failure is the one where they disagree.
- * Measured on 2026-08-22: with yt-dlp's default player client, extraction
- * succeeded and returned a well-formed URL that answered 403 to every
- * download. A resolve-only check calls that healthy. The control video is
- * nineteen seconds long, so proving the whole path costs well under a
+ * It transfers the file as well as resolving it: the two fail independently.
+ * Measured 2026-08-22, yt-dlp's default player client extracted a well-formed
+ * URL that answered 403 to every download, which a resolve-only check calls
+ * healthy. The control video is 19s, so the whole path costs well under a
  * megabyte an hour.
  */
 class YtDlpSelfTestCommand extends Command
@@ -47,7 +42,7 @@ class YtDlpSelfTestCommand extends Command
         $notes = null;
 
         try {
-            $provider = $registry->resolverFor($url);
+            $provider = $registry->forUrl($url);
             $resolved = $provider->resolve(new MediaRequest(url: $url, maxHeight: 360));
 
             // A resolve that returns no usable URL is a failure even though
@@ -64,10 +59,9 @@ class YtDlpSelfTestCommand extends Command
                 }
             }
 
-            // Assigned last, and only here, so anything thrown above leaves the
-            // check failed. Setting it before the transfer made a download that
-            // 403s report as healthy, which is the exact failure this command
-            // was extended to catch.
+            // Assigned last so anything thrown above leaves the check failed.
+            // Setting it before the transfer made a 403ing download look
+            // healthy, the exact failure this command exists to catch.
             $ok = $healthy;
         } catch (ApiException $e) {
             $failureCode = $e->errorCode->value;

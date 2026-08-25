@@ -14,10 +14,6 @@ use Tests\Support\FakeYtDlpRunner;
  * The shape of the response is unchanged and that is the point: the client in
  * production reads the same keys and needs no release.
  */
-beforeEach(function () {
-    config()->set('media.delivery', 'storage');
-});
-
 it('hands back a signed url of ours rather than the provider url', function () {
     // The provider's URL carries the IP that extracted it. A server resolving
     // and a phone downloading is a guaranteed 403, which is the entire reason

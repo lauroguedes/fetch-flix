@@ -54,6 +54,11 @@ Schedule::command('media:prune')
     ->withoutOverlapping()
     ->runInBackground();
 
+// Expired tokens stay in the table doing nothing but growing it.
+Schedule::command('sanctum:prune-expired --hours=24')
+    ->daily()
+    ->withoutOverlapping();
+
 Schedule::call(function () {
     UsageRecord::query()->where('created_at', '<', now()->subDays(90))->delete();
     CachedDiscovery::query()->where('expires_at', '<', now()->subDays(2))->delete();

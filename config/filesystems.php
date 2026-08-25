@@ -47,44 +47,34 @@ return [
             'report' => false,
         ],
 
-        's3' => [
-            'driver' => 's3',
-            'key' => env('AWS_ACCESS_KEY_ID'),
-            'secret' => env('AWS_SECRET_ACCESS_KEY'),
-            'region' => env('AWS_DEFAULT_REGION'),
-            'bucket' => env('AWS_BUCKET'),
-            'url' => env('AWS_URL'),
-            'endpoint' => env('AWS_ENDPOINT'),
-            'use_path_style_endpoint' => env('AWS_USE_PATH_STYLE_ENDPOINT', false),
-            'throw' => false,
-            'report' => false,
-        ],
-
         /*
-         * Media assets: downloaded video and audio files served to clients
-         * through our own signed URLs.
+         * The only disk this application writes to: downloaded video and audio
+         * served to clients behind our own signed URLs.
          *
-         * `local` in development, `s3` in production. Cloudflare R2 is
-         * S3-compatible and uses the same driver with `MEDIA_S3_ENDPOINT`
-         * pointed at the account endpoint.
+         * `local` in development, `s3` in production. Cloudflare R2 speaks S3,
+         * so it is the stock driver with `AWS_ENDPOINT` pointed at the account
+         * endpoint and `AWS_DEFAULT_REGION=auto`.
          *
-         * Deliberately no `visibility` key: setting one makes Flysystem send an
-         * ACL header on every write, which R2 rejects. Objects are private by
-         * bucket policy and reached only through short-lived pre-signed URLs.
+         * Two settings differ from Laravel's stock `s3` disk and are the reason
+         * this disk is declared rather than reused:
          *
-         * `throw` is on. A storage failure that returns false instead of
-         * raising would be recorded as a successful download of a file that is
-         * not there, and only surface later as a broken stream.
+         * `throw` is on. A write that returns false instead of raising would be
+         * recorded as a successful download of a file that is not there, and
+         * only surface later as a broken stream.
+         *
+         * No `visibility` key. Setting one makes Flysystem send an ACL header on
+         * every write, which R2 rejects. Objects are private by bucket policy
+         * and reached only through short-lived pre-signed URLs.
          */
         'media' => [
             'driver' => env('MEDIA_DISK_DRIVER', 'local'),
             'root' => storage_path('app/media'),
-            'key' => env('MEDIA_S3_KEY'),
-            'secret' => env('MEDIA_S3_SECRET'),
-            'region' => env('MEDIA_S3_REGION', 'auto'),
-            'bucket' => env('MEDIA_S3_BUCKET'),
-            'endpoint' => env('MEDIA_S3_ENDPOINT'),
-            'use_path_style_endpoint' => env('MEDIA_S3_PATH_STYLE', false),
+            'key' => env('AWS_ACCESS_KEY_ID'),
+            'secret' => env('AWS_SECRET_ACCESS_KEY'),
+            'region' => env('AWS_DEFAULT_REGION', 'auto'),
+            'bucket' => env('AWS_BUCKET'),
+            'endpoint' => env('AWS_ENDPOINT'),
+            'use_path_style_endpoint' => env('AWS_USE_PATH_STYLE_ENDPOINT', false),
             'throw' => true,
             'report' => false,
         ],

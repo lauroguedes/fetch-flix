@@ -10,12 +10,11 @@ use Closure;
 use Illuminate\Support\Facades\Cache;
 
 /**
- * Gates every outbound Data API call against two budgets.
+ * Gates every outbound Data API call against two budgets, tenant and global.
  *
- * search.list costs 100 units against a default 10,000/day quota, which is
- * roughly 100 searches per day for the entire project across every consuming
- * app and every user. That makes quota a shared, exhaustible resource rather
- * than a rate limit, and it needs to be accounted for as one.
+ * search.list costs 100 units against a 10,000/day quota: roughly 100 searches
+ * a day for the entire project. Quota is a shared exhaustible resource, not a
+ * rate limit, and is accounted for as one.
  */
 final class QuotaGuard
 {
@@ -30,9 +29,8 @@ final class QuotaGuard
     /**
      * Reserve units, run the call, and record the spend.
      *
-     * Units are reserved *before* the call, not after. Incrementing afterwards
-     * would let a burst of concurrent requests all pass the check and blow
-     * through the daily allowance together.
+     * Reserved *before* the call: incrementing afterwards would let a burst of
+     * concurrent requests all pass the check and blow the allowance together.
      *
      * @template T
      *
@@ -43,14 +41,13 @@ final class QuotaGuard
     {
         $this->reserve($tenant, $units);
 
-        // Note there is no rollback on failure, by design. Google charges for
-        // every request including invalid ones, so releasing the reservation
-        // when a call errors would let a failing loop burn the real allowance
-        // while our counters said it had not.
+        // No rollback on failure, by design: Google charges for invalid
+        // requests too, so releasing the reservation would let a failing loop
+        // burn the real allowance while our counters said otherwise.
         return $callback();
     }
 
-    public function reserve(Tenant $tenant, int $units): void
+    private function reserve(Tenant $tenant, int $units): void
     {
         $ttl = $this->secondsUntilReset();
 
@@ -67,8 +64,7 @@ final class QuotaGuard
 
         $tenantCount = $this->increment($this->tenantKey($tenant), $units, $ttl);
 
-        // Recorded even when the call below fails, because Google charges for
-        // it either way.
+        // Recorded even when the call fails: Google charges either way.
         $this->tracker->spendUnits($units);
 
         if ($tenantCount > $tenant->quota_units_daily) {
@@ -91,11 +87,9 @@ final class QuotaGuard
     }
 
     /**
-     * Seconds until the Data API's own reset boundary: midnight Pacific.
-     *
-     * Not UTC and not the application timezone. Telling a client to retry at
-     * the wrong hour is worse than telling it nothing, because it will retry
-     * into the same exhausted quota.
+     * Seconds until the Data API's own reset boundary: midnight Pacific, not
+     * UTC and not the app timezone. The wrong hour makes a client retry
+     * straight into the same exhausted quota.
      */
     public function secondsUntilReset(): int
     {
@@ -107,9 +101,8 @@ final class QuotaGuard
 
     private function increment(string $key, int $units, int $ttl): int
     {
-        // add() is atomic and only seeds the counter when absent, which is also
-        // what attaches the expiry. increment() alone would create a key with
-        // no TTL and leak yesterday's spend into today.
+        // add() is atomic, seeds only when absent, and is what attaches the
+        // expiry; increment() alone would leak yesterday's spend into today.
         Cache::add($key, 0, $ttl);
 
         return (int) Cache::increment($key, $units);

@@ -13,8 +13,7 @@ use Illuminate\Support\Carbon;
  * One downloadable variant of one video, stored on the media disk.
  *
  * Shared by every tenant: the bytes of a public video are the same for
- * everybody, so a single download serves all of them and nothing tenant-derived
- * is recorded here.
+ * everybody, so nothing tenant-derived is recorded here.
  *
  * @property int $id
  * @property string $asset_key
@@ -74,11 +73,8 @@ class MediaAsset extends Model
     }
 
     /**
-     * Servable means the row claims to be stored *and* names a file.
-     *
-     * Both halves are checked because a row can be marked stored with a null
-     * path only through a bug, and the cost of that bug should be a cache miss
-     * rather than a delivery endpoint handing back an empty response.
+     * Stored *and* naming a file. Both halves are checked so that a row marked
+     * stored with a null path costs a cache miss rather than an empty response.
      */
     public function isServable(): bool
     {

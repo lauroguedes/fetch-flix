@@ -16,11 +16,9 @@ use Throwable;
  * Translates any exception reaching the API surface into the one envelope
  * consumers know how to parse.
  *
- * This exists as a single mapper rather than a set of per-type render callbacks
- * because Laravel rewrites some exceptions before render callbacks run: an
- * AuthorizationException arrives here already converted to an
- * AccessDeniedHttpException. Matching in one place makes that behaviour
- * explicit instead of a silent fallthrough to the catch-all.
+ * One mapper rather than per-type render callbacks, because Laravel rewrites
+ * some exceptions before those run: an AuthorizationException arrives here
+ * already converted to an AccessDeniedHttpException.
  */
 final class ExceptionMapper
 {
@@ -54,16 +52,14 @@ final class ExceptionMapper
             return ApiException::unresolvable('No such endpoint.');
         }
 
-        // Any other 4xx is a permanent client error. It must not be rendered as
-        // a 5xx, which the client would retry forever.
+        // Any other 4xx is permanent; a 5xx would be retried forever.
         if ($e instanceof HttpExceptionInterface && $e->getStatusCode() < 500) {
             return ApiException::invalidRequest($e->getMessage() ?: null);
         }
 
-        // Everything else. An unhandled failure on this surface is nearly always
-        // a broken extractor or a transient upstream change, so it renders as a
-        // retryable 503 rather than a 500 that tells the client to give up on a
-        // request that will succeed on retry. The cause is still reported.
+        // An unhandled failure here is nearly always a broken extractor or a
+        // transient upstream change, so it renders as a retryable 503 rather
+        // than a 500 telling the client to give up. The cause is still reported.
         report($e);
 
         return ApiException::resolverUnavailable(previous: $e);

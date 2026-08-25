@@ -8,12 +8,9 @@ use Illuminate\Support\Str;
 /**
  * The correlation id for a single logical client action.
  *
- * Clients reuse X-Request-Id across their own retries, which is what makes it
- * usable as a deduplication key: extraction is expensive and running it twice
- * for one user action is pure waste.
- *
- * Stored in Context rather than the container so it propagates into queued jobs
- * and log entries without being threaded through every call signature.
+ * Clients reuse X-Request-Id across retries, which is what makes it usable as a
+ * deduplication key. Stored in Context rather than the container so it reaches
+ * queued jobs and log entries without being threaded through call signatures.
  */
 final class RequestId
 {
@@ -34,9 +31,8 @@ final class RequestId
             return $existing;
         }
 
-        // An error can be rendered before the middleware ran (for example a
-        // malformed request rejected during routing). Mint one so the envelope
-        // never ships a null request_id.
+        // An error can render before the middleware ran (a malformed request
+        // rejected during routing). Mint one so request_id is never null.
         $generated = (string) Str::uuid();
         self::set($generated);
 
@@ -44,11 +40,9 @@ final class RequestId
     }
 
     /**
-     * Accept a client-supplied value only if it is a plausible correlation id.
-     *
-     * Deliberately permissive about format but strict about length and
-     * character set: the value becomes part of a cache key, so it must not be
-     * able to carry delimiters or unbounded length into Redis.
+     * Permissive about format, strict about length and character set: the value
+     * becomes part of a cache key and must not carry delimiters or unbounded
+     * length into Redis.
      */
     public static function isAcceptable(?string $candidate): bool
     {

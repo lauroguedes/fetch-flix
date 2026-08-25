@@ -3,11 +3,9 @@
 namespace App\Api;
 
 /**
- * Per-request accumulator for what an API call actually cost.
- *
- * Request-scoped rather than passed through call signatures, because the things
- * that know the cost (the quota guard, the cache layer) are several levels below
- * the thing that reports it.
+ * Per-request accumulator for what an API call cost. Request-scoped rather than
+ * threaded through call signatures, because the things that know the cost are
+ * several levels below the middleware that reports it.
  */
 final class UsageTracker
 {
@@ -18,12 +16,9 @@ final class UsageTracker
     private ?string $provider = null;
 
     /**
-     * Clear the accumulator for a new request.
-     *
-     * Called explicitly rather than relying on a fresh container per request.
-     * Under Octane, or anywhere the container outlives a single request, a
-     * scoped binding would otherwise carry one tenant's spend into the next
-     * request and bill it to somebody else.
+     * Called explicitly rather than relying on a fresh container per request:
+     * under Octane a scoped binding would carry one tenant's spend into the
+     * next request and bill it to somebody else.
      */
     public function reset(): void
     {

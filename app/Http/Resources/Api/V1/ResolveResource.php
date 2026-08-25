@@ -17,10 +17,9 @@ class ResolveResource extends JsonResource
     public static $wrap = null;
 
     /**
-     * Every contracted key is always present. `bytes` in particular is emitted
-     * as null rather than omitted when yt-dlp reports neither an exact nor an
-     * approximate size: a client reading a fixed shape must not have a key
-     * disappear underneath it.
+     * Every contracted key is always present. `bytes` is emitted as null rather
+     * than omitted when yt-dlp reports no size at all: a client reading a fixed
+     * shape must not have a key disappear underneath it.
      *
      * @return array<string, mixed>
      */
@@ -37,7 +36,11 @@ class ResolveResource extends JsonResource
             'duration_ms' => $this->resource->durationMs,
             'thumbnail_url' => $this->resource->thumbnailUrl,
             'media' => [
-                'url' => $media->url,
+                // Stored root-relative so nothing host-dependent reaches the
+                // shared cache; made absolute here against the host actually
+                // serving this request. Already-absolute values pass through
+                // `url()` untouched.
+                'url' => url($media->url),
                 'mime_type' => $media->mimeType,
                 'container' => $media->container,
                 'bytes' => $media->bytes,
@@ -45,15 +48,14 @@ class ResolveResource extends JsonResource
                 'height' => $media->height,
                 'has_audio' => $media->hasAudio,
                 'has_video' => $media->hasVideo,
-                // Verbatim. Some CDNs 403 without an exact Referer and the
+                // Verbatim: some CDNs 403 without an exact Referer, and the
                 // client feeds these straight into URLSession.
                 'headers' => (object) $media->headers,
                 'expires_at' => $media->expiresAt->toIso8601ZuluString(),
 
-                // Additive, outside the original contract. Since YouTube removed
-                // itag 22 a 720p request routinely lands on 360p; these say so
-                // explicitly instead of leaving the client to infer it. Clients
-                // that do not know these keys ignore them.
+                // Additive, outside the original contract. Since itag 22 was
+                // removed a 720p request routinely lands on 360p; these say so
+                // rather than leaving the client to infer it.
                 'degraded' => $media->degraded,
                 'requested_height' => $media->requestedHeight,
             ],

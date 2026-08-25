@@ -11,10 +11,9 @@ use Symfony\Component\HttpFoundation\Response;
 /**
  * Rejects tokens belonging to a suspended tenant.
  *
- * Suspension is an account condition, so it renders as `unauthorized` rather
- * than reusing one of the media-semantics codes. Telling a client that a video
- * is "private_or_restricted" when the real cause is a billing suspension would
- * send it down the wrong branch and make the fault impossible to diagnose.
+ * Renders as `unauthorized` rather than a media-semantics code: reporting
+ * "private_or_restricted" for a billing suspension sends the client down the
+ * wrong branch and makes the fault impossible to diagnose.
  */
 class EnsureTenantActive
 {

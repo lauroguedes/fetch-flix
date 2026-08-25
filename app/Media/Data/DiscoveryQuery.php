@@ -38,19 +38,19 @@ final readonly class DiscoveryQuery
     }
 
     /**
-     * The upstream query, stripped of anything that does not change the result
-     * set we cache.
-     *
-     * max_duration_ms is deliberately absent: we fetch and cache a superset and
-     * filter by exact duration in PHP, so one cached page serves every duration
-     * variant across every tenant. Putting it in the key would fragment the
-     * cache and multiply 100-unit calls for no benefit.
+     * The upstream query, stripped of anything that does not change the cached
+     * result set. max_duration_ms is deliberately absent: we cache a superset
+     * and filter in PHP, so one page serves every duration variant across every
+     * tenant. Keying on it would fragment the cache and multiply 100-unit calls.
      */
     public function cacheKey(): string
     {
         $normalised = $this->normalisedTerm();
 
         $parts = [
+            // Bumped whenever the cached card shape changes, so a payload
+            // written by an older build is never rehydrated into the new one.
+            'v2',
             $this->kind === 'category' ? 'category' : 'search',
             $this->categorySlug ?? sha1($normalised),
             $this->regionCode ?? '-',

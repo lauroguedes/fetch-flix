@@ -13,16 +13,16 @@ use Throwable;
 /**
  * Writes the billing and analytics ledger.
  *
- * Terminable, so the insert happens after the response has been sent to the
- * client and never adds latency to the request the plan budgets so carefully.
- * Writing it here rather than dispatching a job keeps the ledger lossless: a
- * queue that is down or backed up must not silently lose spend records.
- *
- * Recording in terminate() also means failed requests are captured, which is
- * exactly when usage data matters most.
+ * Terminable, so the insert lands after the response is sent and adds no
+ * latency to a carefully budgeted request. Written here rather than dispatched
+ * as a job so a backed-up queue cannot lose spend records, and in terminate()
+ * so failed requests are captured too — exactly when usage matters most.
  */
 class RecordApiUsage
 {
+    /** `X-Client: <platform>/<app version>`, e.g. `ios/1.4.0`. */
+    public const CLIENT_HEADER = 'X-Client';
+
     public function __construct(
         private readonly UsageTracker $tracker,
     ) {}
@@ -53,9 +53,7 @@ class RecordApiUsage
                 'tenant_id' => $tenant->id,
                 'endpoint' => $request->route()?->getName() ?? $request->path(),
                 'provider' => $this->tracker->provider(),
-                'client_platform' => $this->clientField($request, 'platform', 32),
-                'client_app_version' => $this->clientField($request, 'app_version', 32),
-                'client_api_version' => $this->clientField($request, 'api_version', 16),
+                ...$this->client($request),
                 'quota_units' => $this->tracker->quotaUnits(),
                 'cache_hit' => $this->tracker->wasCacheHit(),
                 'status_code' => $response->getStatusCode(),
@@ -64,30 +62,54 @@ class RecordApiUsage
                 'created_at' => now(),
             ]);
         } catch (Throwable $e) {
-            // Accounting must never turn a served response into a failed one.
-            // The response has already gone out; all we can do is report.
+            // Accounting must never fail a response that already went out.
             report($e);
         }
     }
 
     /**
-     * Read one field of the request's `client` block.
+     * Identify the calling app from the `X-Client` header.
      *
-     * Read straight from the request rather than from validated input, so a
-     * call that failed validation is still attributed to the app that sent it,
-     * which is exactly when knowing the app version is most useful. Because
-     * that means the value is untrusted, it is type-checked and truncated to
-     * the column width instead of being written as received.
+     * A header rather than a body field, so it attributes every endpoint the
+     * same way and costs a client one line instead of a required object. The
+     * API version is deliberately not carried here: the URI path already
+     * states it.
+     *
+     * Read from the raw request, never from validated input, so a call that
+     * failed validation is still attributed to the app that sent it — exactly
+     * when knowing the version matters most. That makes the value untrusted,
+     * hence the truncation.
+     *
+     * @return array{client_platform: string|null, client_app_version: string|null}
      */
-    private function clientField(Request $request, string $key, int $limit): ?string
+    private function client(Request $request): array
     {
-        $value = $request->input("client.{$key}");
+        $header = (string) $request->header(self::CLIENT_HEADER, '');
 
-        if (! is_string($value) || $value === '') {
-            return null;
-        }
+        // Only the first slash separates the two, so a version containing one
+        // survives intact rather than being truncated at it.
+        $parts = explode('/', trim($header), 2);
 
-        return mb_substr($value, 0, $limit);
+        return [
+            'client_platform' => $this->clamp($parts[0], 32),
+            'client_app_version' => $this->clamp($parts[1] ?? '', 32),
+        ];
+    }
+
+    /**
+     * Truncate to the column, and drop anything that is not printable ASCII.
+     *
+     * The charset filter is the part that matters. This value is attacker-
+     * controlled and the old body field was validated before it got here; an
+     * invalid UTF-8 sequence makes the insert throw, and the `catch` above
+     * swallows it — so a client sending one malformed header would vanish from
+     * the usage ledger entirely rather than merely being mislabelled.
+     */
+    private function clamp(string $value, int $limit): ?string
+    {
+        $value = trim((string) preg_replace('/[^\x20-\x7E]/', '', $value));
+
+        return $value === '' ? null : mb_substr($value, 0, $limit);
     }
 
     private function errorCode(Response $response): ?string

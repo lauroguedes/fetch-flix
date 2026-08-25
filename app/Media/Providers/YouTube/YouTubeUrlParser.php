@@ -5,10 +5,8 @@ namespace App\Media\Providers\YouTube;
 use App\Api\Exceptions\ApiException;
 
 /**
- * Recognises the URL shapes YouTube actually hands out.
- *
- * Clients paste whatever the share sheet gave them, so all of these arrive in
- * practice: watch links, youtu.be short links, Shorts, embeds, and live URLs.
+ * Recognises the URL shapes YouTube hands out: watch links, youtu.be short
+ * links, Shorts, embeds and live URLs all arrive from real share sheets.
  */
 final class YouTubeUrlParser
 {
@@ -50,7 +48,7 @@ final class YouTubeUrlParser
         }
 
         // /shorts/<id>, /embed/<id>, /live/<id>, /v/<id>
-        // Tilde-delimited: a '#' delimiter would be terminated by the '#' inside
+        // Tilde-delimited: a '#' delimiter would be terminated by the '#' in
         // the character class.
         if (preg_match('~^/(?:shorts|embed|live|v)/([^/?#]+)~', $path, $matches) === 1) {
             return $this->validate($matches[1]);
@@ -59,13 +57,7 @@ final class YouTubeUrlParser
         throw ApiException::unresolvable('No YouTube video id could be read from that URL.');
     }
 
-    /**
-     * Whether the URL was shared in Shorts form.
-     *
-     * Worth preserving: the oEmbed endpoint reports 16:9 for a vertical video
-     * when queried with the /watch form and the true portrait dimensions when
-     * queried with the /shorts form, so this determines which one to ask.
-     */
+    /** Whether the URL was shared in Shorts form. */
     public function isShortsUrl(string $url): bool
     {
         $path = (string) parse_url($url, PHP_URL_PATH);
@@ -73,9 +65,21 @@ final class YouTubeUrlParser
         return str_starts_with($path, '/shorts/');
     }
 
+    /** The canonical page URL for an id. The inverse of `parse()`. */
     public function watchUrl(string $id): string
     {
         return "https://www.youtube.com/watch?v={$id}";
+    }
+
+    /**
+     * The Shorts form of the same video.
+     *
+     * Only oEmbed cares: /watch reports 16:9 even for vertical video, so a
+     * clip believed to be short-form has to be asked for by this shape.
+     */
+    public function shortsUrl(string $id): string
+    {
+        return "https://www.youtube.com/shorts/{$id}";
     }
 
     private function validate(string $candidate): string

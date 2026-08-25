@@ -4,11 +4,10 @@ namespace App\Media\Jobs;
 
 use App\Api\Exceptions\ApiException;
 use App\Media\Data\MediaRequest;
-use App\Media\ProviderRegistry;
+use App\Media\ResolveService;
 use Illuminate\Contracts\Queue\ShouldBeUnique;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
-use Illuminate\Support\Facades\Cache;
 
 /**
  * Completes an extraction that missed its synchronous deadline.
@@ -31,10 +30,7 @@ final class ResolveMediaJob implements ShouldBeUnique, ShouldQueue
         $this->onQueue('resolve');
     }
 
-    /**
-     * Keyed on the work, not the caller, so a retry storm from several clients
-     * for the same video cannot fan out into duplicate extractions.
-     */
+    /** Keyed on the work, so a retry storm cannot fan out into duplicates. */
     public function uniqueId(): string
     {
         return $this->fingerprint;
@@ -45,23 +41,13 @@ final class ResolveMediaJob implements ShouldBeUnique, ShouldQueue
         return 120;
     }
 
-    public function handle(ProviderRegistry $registry): void
+    public function handle(ResolveService $resolver): void
     {
         try {
-            $provider = $registry->resolverFor($this->request->url);
-            $resolved = $provider->resolve($this->request);
+            $resolver->extractAndCache($this->request, $this->fingerprint);
         } catch (ApiException) {
             // The synchronous path already returned a correct error to the
-            // client. Re-reporting it here would double-count the failure
-            // without telling anyone anything new.
-            return;
-        }
-
-        $untilExpiry = (int) floor(now()->diffInSeconds($resolved->media->expiresAt, false)) - 30;
-        $ttl = max(0, min($untilExpiry, 900));
-
-        if ($ttl > 0) {
-            Cache::put("resolve:media:{$this->fingerprint}", $resolved->toArray(), $ttl);
+            // client; re-reporting would only double-count it.
         }
     }
 }

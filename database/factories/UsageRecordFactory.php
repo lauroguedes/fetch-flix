@@ -22,7 +22,6 @@ class UsageRecordFactory extends Factory
             'provider' => 'youtube',
             'client_platform' => 'ios',
             'client_app_version' => '1.4.2',
-            'client_api_version' => 'v1',
             'quota_units' => 0,
             'cache_hit' => true,
             'status_code' => 200,

@@ -12,21 +12,14 @@ use Symfony\Component\HttpFoundation\Response;
 /**
  * Turns a stored asset into bytes on the wire.
  *
- * Two shapes, chosen by where the file actually is:
+ *  - Remote disk (S3, R2): a 302 to a short-lived pre-signed URL, so no media
+ *    passes through this application and one small web node suffices.
+ *  - Local disk: streamed from the filesystem with byte-range support, because
+ *    ignoring Range breaks scrubbing.
  *
- *  - A remote disk (S3, R2) gets a 302 to a short-lived pre-signed URL. The
- *    client transfers from the bucket directly and none of the media passes
- *    through this application, which is what keeps a video service on one small
- *    web node.
- *
- *  - A local disk is streamed from the filesystem, with byte-range support,
- *    because players seek and resume and a response that ignores Range breaks
- *    scrubbing.
- *
- * The branch is on the driver rather than on `providesTemporaryUrls()`, because
- * a local disk with `serve` enabled can mint temporary URLs too. Redirecting to
- * one would send the client back through this application for a file that was
- * already on this machine.
+ * The branch is on the driver, not `providesTemporaryUrls()`: a local disk with
+ * `serve` enabled can mint temporary URLs too, and redirecting to one would
+ * send the client back through this app for a file already on this machine.
  */
 final class AssetDelivery
 {
@@ -41,10 +34,8 @@ final class AssetDelivery
 
         if (! $this->isLocal((string) $asset->disk)) {
             if (! $disk->providesTemporaryUrls()) {
-                // A remote disk that cannot pre-sign would leave every byte of
-                // every video flowing through this process. That is a
-                // misconfiguration worth failing loudly on rather than
-                // absorbing silently.
+                // Without pre-signing, every byte of every video would flow
+                // through this process. Fail loudly.
                 throw ApiException::resolverUnavailable(
                     message: 'Media storage is misconfigured.',
                     context: ['disk' => $asset->disk, 'reason' => 'no_temporary_urls'],
@@ -56,16 +47,14 @@ final class AssetDelivery
                 Carbon::now()->addSeconds((int) config('media.storage.presigned_ttl', 900)),
             );
 
-            // no-store because the pre-signed URL is minted per download and
-            // outlives nothing. A cached redirect would hand a later caller a
-            // link that has already expired.
+            // no-store: the pre-signed URL is minted per download, so a cached
+            // redirect would hand a later caller an already-expired link.
             return redirect()->away($url, Response::HTTP_FOUND, ['Cache-Control' => 'no-store']);
         }
 
         if (! $disk->exists($path)) {
-            // The row says stored and the file is gone. Rather than serving an
-            // empty response forever, put the asset back in a state a later
-            // resolve will re-download, and tell this caller to resolve again.
+            // Row says stored, file is gone. Put it back in a state a later
+            // resolve re-downloads, and tell this caller to resolve again.
             $this->assets->markFailed($asset, ErrorCode::DownloadFailed);
 
             throw ApiException::expired('This download is no longer available. Please resolve again.');

@@ -13,11 +13,9 @@ use Illuminate\Support\Facades\Cache;
 /**
  * Discovery caching.
  *
- * Resolve and discover have opposite natures. A resolve is per-request,
- * URL-bound and expires; a discovery result is identical for everybody and must
- * be fetched once and reused by every tenant. With search.list at 100 units
- * against a 10,000/day allowance shared by the whole project, the cache is the
- * feature rather than an optimisation, and a cache miss is a budget event.
+ * A discovery result is identical for everybody, and search.list costs 100
+ * units against a 10,000/day allowance shared by the whole project, so the
+ * cache is the feature and a miss is a budget event.
  *
  * Three layers, cheapest first:
  *   1. Redis, via Cache::flexible, so nobody waits on a 100-unit call
@@ -39,9 +37,9 @@ final class DiscoveryService
         $fresh = (int) config('media.discovery.cache_fresh', 21600);
         $stale = (int) config('media.discovery.cache_stale', 86400);
 
-        // Within the fresh window this returns immediately. Between fresh and
-        // stale it serves the existing page and refreshes in a deferred callback
-        // after the response is sent, so no caller ever pays the API latency.
+        // Fresh: returns immediately. Between fresh and stale: serves the
+        // existing page and refreshes after the response is sent, so no caller
+        // pays the API latency.
         $payload = Cache::flexible($key, [$fresh, $stale], function () use ($tenant, $query, $key, $fresh) {
             return $this->fetchThroughDatabase($tenant, $query, $key, $fresh)->toArray();
         });
@@ -50,8 +48,8 @@ final class DiscoveryService
 
         $page = DiscoveryPage::fromArray($payload);
 
-        // Filtering happens on the way out, never before caching: the cached
-        // superset then serves every max_duration_ms variant across all tenants.
+        // Filtered on the way out, never before caching, so the cached superset
+        // serves every max_duration_ms variant across all tenants.
         return $page->withinDuration($query->maxDurationMs);
     }
 
@@ -70,8 +68,7 @@ final class DiscoveryService
 
         $page = $this->api->search($tenant, $query);
 
-        // Dimensions are resolved once, before storage, so every later reader of
-        // this cache entry gets them for free.
+        // Resolved once before storage, so every later reader gets them free.
         $page = new DiscoveryPage(
             videos: $this->dimensions->hydrate($page->videos),
             nextPageToken: $page->nextPageToken,

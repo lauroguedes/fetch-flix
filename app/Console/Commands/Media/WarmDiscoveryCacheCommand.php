@@ -6,8 +6,8 @@ use App\Api\Exceptions\ApiException;
 use App\Media\Data\DiscoveryQuery;
 use App\Media\Discovery\DiscoveryService;
 use App\Models\Tenant;
+use App\Models\TenantStatus;
 use App\Models\VideoCategory;
-use App\Tenancy\TenantStatus;
 use Illuminate\Console\Command;
 
 /**

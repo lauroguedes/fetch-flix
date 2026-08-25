@@ -10,12 +10,8 @@ use Illuminate\Support\Facades\Storage;
 use Throwable;
 
 /**
- * Collects stored media nobody is asking for any more.
- *
- * Not optional. Handing back a provider URL cost nothing to keep; holding the
- * file costs money every month it stays, and an uncollected library grows
- * without bound. Short retention is also part of the posture that came with
- * deciding to host the bytes at all.
+ * Collects stored media nobody is asking for any more. Not optional: an
+ * uncollected library grows without bound and costs money every month.
  */
 class PruneMediaAssetsCommand extends Command
 {
@@ -51,9 +47,8 @@ class PruneMediaAssetsCommand extends Command
             }
         }
 
-        // Failed rows are not holding a file, but they are holding the variant:
-        // while one exists, a resolve will keep answering with a URL that leads
-        // to an error. Clearing them lets the next resolve start over.
+        // Failed rows hold no file but do hold the variant: while one exists a
+        // resolve keeps answering with a URL that leads to an error.
         $stale = MediaAsset::query()
             ->where('status', AssetStatus::Failed)
             ->where('updated_at', '<', now()->subDay());
@@ -72,10 +67,8 @@ class PruneMediaAssetsCommand extends Command
     }
 
     /**
-     * Delete the row, and the file only if nothing else points at it.
-     *
-     * Two variants of the same video routinely share one object, so deleting
-     * the file with the first row would break the second.
+     * Delete the row, and the file only if nothing else points at it: two
+     * variants of the same video routinely share one object.
      */
     private function forget(MediaAssetRepository $assets, MediaAsset $asset): void
     {
@@ -85,9 +78,8 @@ class PruneMediaAssetsCommand extends Command
             try {
                 Storage::disk($asset->disk)->delete($asset->path);
             } catch (Throwable $e) {
-                // A file we cannot delete is a cost, not a correctness problem.
-                // Losing the row as well would make it an orphan nobody can
-                // find again, so the row stays until the delete succeeds.
+                // An undeletable file is a cost, not a correctness problem.
+                // The row stays, or the file becomes an unfindable orphan.
                 report($e);
 
                 return;

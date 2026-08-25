@@ -17,11 +17,9 @@ final readonly class ResolvedMedia
     ) {}
 
     /**
-     * Serialised form used for caching and request-id replay.
-     *
-     * Deliberately hand-rolled rather than serialize(): the cached payload
-     * outlives a deploy, and a changed class shape must not produce an
-     * unreadable cache entry mid-rollout.
+     * Serialised form for caching and request-id replay. Hand-rolled rather
+     * than serialize(): the payload outlives a deploy, and a changed class
+     * shape must not produce an unreadable cache entry mid-rollout.
      *
      * @return array<string, mixed>
      */

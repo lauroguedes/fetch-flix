@@ -25,9 +25,8 @@ final readonly class MediaRequest
         bool $audioOnly,
         ?int $maxDurationMs,
     ): self {
-        // The tenant ceiling and the request's own limit are both upper bounds,
-        // so the tighter of the two wins. A tenant cannot be talked past its
-        // own configured maximum by a generous request body.
+        // Both are upper bounds, so the tighter wins: a generous request body
+        // cannot talk a tenant past its own configured maximum.
         $duration = self::tightest($maxDurationMs, $tenant->max_duration_ms);
 
         return new self(
@@ -54,10 +53,9 @@ final readonly class MediaRequest
     }
 
     /**
-     * Identifies the *work*, not the caller.
-     *
-     * Two tenants asking for the same video at the same height are asking for
-     * the same extraction, so this is what the single-flight lock keys on.
+     * Identifies the *work*, not the caller: two tenants asking for the same
+     * video at the same height want the same extraction, which is what the
+     * single-flight lock keys on.
      */
     public function fingerprint(string $provider, string $providerId): string
     {

@@ -3,20 +3,16 @@
 namespace App\Media\Storage;
 
 use App\Api\Exceptions\ApiException;
-use App\Media\YtDlp\YtDlpEnvironment;
 use App\Media\YtDlp\YtDlpFailed;
-use Symfony\Component\Process\Exception\ProcessTimedOutException;
-use Symfony\Component\Process\Process;
+use App\Media\YtDlp\YtDlpProcess;
 
 /**
  * Transfers a media file with the yt-dlp binary.
  *
- * A plain HTTP GET on the format URL looks simpler and is a trap: YouTube
- * throttles progressive formats fetched in a single request down to tens of
- * KB/s, so a 12MB file can take minutes. yt-dlp already works around this by
- * fetching in ranges, and it re-derives the signature when the URL from the
- * original resolve has gone stale. Reimplementing either would be duplicating
- * the one part of yt-dlp that changes most often.
+ * A plain HTTP GET on the format URL is a trap: YouTube throttles progressive
+ * formats fetched in one request down to tens of KB/s, so a 12MB file can take
+ * minutes. yt-dlp fetches in ranges and re-derives the signature when the
+ * resolve's URL has gone stale — the part of it that changes most often.
  */
 final class YtDlpMediaDownloader implements MediaDownloader
 {
@@ -26,22 +22,22 @@ final class YtDlpMediaDownloader implements MediaDownloader
 
         $this->ensureDirectory($destination);
 
-        $process = new Process($this->command($sourceUrl, $formatId, $destination, $maxBytes), env: YtDlpEnvironment::forProcess());
-        $process->setTimeout($timeout);
-
         try {
-            $process->run();
-        } catch (ProcessTimedOutException) {
+            $process = YtDlpProcess::run(
+                $this->flags($formatId, $destination, $maxBytes),
+                $sourceUrl,
+                $timeout * 1000,
+            );
+        } catch (YtDlpFailed $e) {
             $this->discard($destination);
 
-            throw YtDlpFailed::timedOut($timeout * 1000);
+            throw $e;
         }
 
         $output = $process->getOutput()."\n".$process->getErrorOutput();
 
         // --max-filesize is a skip, not an error: yt-dlp exits 0 and writes
-        // nothing. Without this branch that would surface as an unexplained
-        // missing file rather than as the ceiling doing its job.
+        // nothing, which would otherwise look like an unexplained missing file.
         if (str_contains($output, 'larger than max-filesize')) {
             $this->discard($destination);
 
@@ -64,8 +60,8 @@ final class YtDlpMediaDownloader implements MediaDownloader
         clearstatcache(true, $destination);
 
         if (! is_file($destination) || filesize($destination) === 0) {
-            // Exit zero with nothing on disk means the binary changed shape or
-            // silently skipped. Either way there is nothing to store.
+            // Exit zero with nothing on disk: the binary changed shape or
+            // silently skipped.
             $this->discard($destination);
 
             throw new YtDlpFailed(
@@ -78,8 +74,8 @@ final class YtDlpMediaDownloader implements MediaDownloader
         $bytes = (int) filesize($destination);
 
         if ($bytes > $maxBytes) {
-            // Belt and braces: --max-filesize relies on a declared size, which
-            // can be absent. This checks what actually landed.
+            // --max-filesize relies on a declared size, which can be absent.
+            // This checks what actually landed.
             $this->discard($destination);
 
             throw ApiException::tooLarge(
@@ -98,55 +94,31 @@ final class YtDlpMediaDownloader implements MediaDownloader
     /**
      * @return array<int, string>
      */
-    private function command(string $sourceUrl, string $formatId, string $destination, int $maxBytes): array
+    private function flags(string $formatId, string $destination, int $maxBytes): array
     {
-        $command = [
-            (string) config('media.yt_dlp.binary', 'yt-dlp'),
-
-            // Exactly the format the resolve committed to. Never a selector
-            // expression: the response already told the client the width,
-            // height and size it is going to get.
+        return [
+            // Exactly the format the resolve committed to, never a selector:
+            // the response already told the client what it is getting.
             '-f', $formatId,
 
             '-o', $destination,
 
-            // Write straight to the destination. A .part file would leave the
-            // caller looking for a name that is not there yet.
+            // Straight to the destination: a .part file would leave the caller
+            // looking for a name that is not there yet.
             '--no-part',
             '--no-continue',
             '--no-mtime',
-            '--no-playlist',
-            '--no-warnings',
 
-            // Progress bars are written as carriage-return updates and would
-            // fill the process buffer with thousands of redundant lines.
+            // Carriage-return progress updates would fill the process buffer.
             '--no-progress',
 
             '--max-filesize', (string) $maxBytes,
 
-            // Generous compared to extraction: this is a transfer on a queue,
-            // not a call the client is blocking on.
+            // Generous: a queued transfer, not a call the client blocks on.
             '--socket-timeout', '15',
             '--retries', '3',
             '--fragment-retries', '3',
-
-            '--cache-dir', (string) config('media.yt_dlp.cache_dir'),
         ];
-
-        if ($clients = config('media.yt_dlp.player_clients')) {
-            $command[] = '--extractor-args';
-            $command[] = 'youtube:player_client='.$clients;
-        }
-
-        if ($proxy = config('media.yt_dlp.proxy')) {
-            $command[] = '--proxy';
-            $command[] = (string) $proxy;
-        }
-
-        $command[] = '--';
-        $command[] = $sourceUrl;
-
-        return $command;
     }
 
     private function ensureDirectory(string $destination): void

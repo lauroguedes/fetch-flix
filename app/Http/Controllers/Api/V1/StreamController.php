@@ -4,7 +4,6 @@ namespace App\Http\Controllers\Api\V1;
 
 use App\Api\ErrorCode;
 use App\Api\Exceptions\ApiException;
-use App\Http\Controllers\Controller;
 use App\Media\Storage\AssetDelivery;
 use App\Media\Storage\AssetKey;
 use App\Media\Storage\MediaAssetRepository;
@@ -15,27 +14,41 @@ use Symfony\Component\HttpFoundation\Response;
 /**
  * Serves a resolved media file.
  *
- * This is the endpoint that fixes the problem the whole storage change exists
- * for: the provider's own URL is bound to the IP that extracted it, so a server
- * resolving and a phone downloading is a guaranteed 403. Here the bytes come
- * from us and the caller's address is irrelevant.
+ * The bytes come from us, so the caller's address is irrelevant — unlike a
+ * provider URL, which is bound to the IP that extracted it.
  *
- * Unauthenticated by design. The signature is the credential, because the
- * client hands this URL to a plain downloader that sends no headers of its own.
+ * Unauthenticated by design: the client hands this URL to a plain downloader
+ * that sends no headers, so the signature is the credential.
  */
-class StreamController extends Controller
+class StreamController
 {
     public function __construct(
         private readonly MediaAssetRepository $assets,
         private readonly AssetDelivery $delivery,
     ) {}
 
+    /**
+     * Download a resolved media file
+     *
+     * Do not build this URL. Take `media.url` from a POST /v1/resolve response
+     * and use it exactly as given — `expires` and `signature` are computed by
+     * this service and the signature is the only credential, so no token is
+     * needed and no header is read. That is what lets you hand the URL to a
+     * plain downloader or a video player.
+     *
+     * For the same reason this endpoint cannot be exercised from this page:
+     * "Try it" sends no valid signature and will answer 403.
+     *
+     * Answers 302 to a short-lived storage URL when media lives on a bucket, or
+     * streams the bytes with range support when it is on local disk. A 410
+     * means the link expired and you should resolve again; a 403 means the
+     * signature does not match.
+     */
     public function __invoke(string $asset): Response
     {
         $media = $this->lookup($asset);
 
-        // Only ever hit by the first caller for a given video: the resolve that
-        // minted this URL queued the download moments ago. Everyone after that,
+        // Only hit by the first caller for a given video; everyone after that,
         // across every tenant, is served from the disk.
         $media = $this->awaitDownload($media);
 
@@ -66,9 +79,8 @@ class StreamController extends Controller
         $media = $this->assets->findByKey($key);
 
         if ($media === null) {
-            // A correctly signed link to an asset that has since been pruned.
-            // Re-resolving is exactly the right move and `expired` is the code
-            // that tells the client to do it.
+            // A correctly signed link to a pruned asset. `expired` is the code
+            // that tells the client to re-resolve.
             throw ApiException::expired('This download is no longer available. Please resolve again.');
         }
 
@@ -78,10 +90,8 @@ class StreamController extends Controller
     /**
      * Hold the connection while the download finishes.
      *
-     * Bounded, and kept short, because every waiting request occupies a PHP
-     * worker. Past the bound the client is told to retry rather than being
-     * strung along: the download carries on regardless and the retry lands on a
-     * stored file.
+     * Bounded and short: every waiting request occupies a PHP worker. Past the
+     * bound the client retries, and the download carries on regardless.
      */
     private function awaitDownload(MediaAsset $media): MediaAsset
     {
@@ -101,9 +111,9 @@ class StreamController extends Controller
     /**
      * Report the failure the download actually hit, not a generic one.
      *
-     * A private or removed video must stay non-retryable here, exactly as it is
-     * on resolve. Flattening every stored failure into `download_failed` would
-     * have clients retrying a video that will never become available.
+     * A private or removed video stays non-retryable here exactly as on
+     * resolve; flattening everything into `download_failed` would have clients
+     * retrying a video that will never become available.
      */
     private function recordedFailure(MediaAsset $media): ApiException
     {

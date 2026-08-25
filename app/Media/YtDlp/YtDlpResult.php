@@ -51,11 +51,6 @@ final readonly class YtDlpResult
         return is_string($this->info['thumbnail'] ?? null) ? $this->info['thumbnail'] : null;
     }
 
-    public function webpageUrl(): ?string
-    {
-        return is_string($this->info['webpage_url'] ?? null) ? $this->info['webpage_url'] : null;
-    }
-
     /**
      * @return array<int, array<string, mixed>>
      */

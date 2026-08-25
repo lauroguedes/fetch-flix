@@ -5,14 +5,12 @@ namespace App\Api;
 use Symfony\Component\HttpFoundation\Response;
 
 /**
- * The error code taxonomy consumed by every client of this service.
+ * The error code taxonomy every client of this service branches on. Part of the
+ * public contract: a case cannot be renamed or removed without a new version.
  *
- * These values are part of the public API contract. Clients branch on them
- * directly, so a case may not be renamed or removed without a new API version.
- *
- * The single invariant this enum exists to protect: clients retry 429 and 5xx
- * and nothing else. A permanent condition must therefore never map to a
- * retryable status, and a transient one must never map to a 4xx.
+ * The invariant it protects: clients retry 429 and 5xx and nothing else, so a
+ * permanent condition must never map to a retryable status and a transient one
+ * must never map to a 4xx.
  */
 enum ErrorCode: string
 {
@@ -56,16 +54,14 @@ enum ErrorCode: string
     case Unauthorized = 'unauthorized';
 
     /**
-     * The HTTP status this code is rendered with.
+     * The HTTP status this code is rendered with. Two mappings are deliberate:
      *
-     * Two mappings carry design weight and are deliberate:
-     *
-     * - Expired is 410, not 503. The client's contract is to re-resolve with a
-     *   fresh request id rather than retry; a 5xx would make it retry the same
-     *   request id straight back into the same expired cache entry.
-     * - RateLimited is 429 even when the cause is an exhausted daily API quota,
-     *   because "we are out of quota today" is a retryable wait, not a fault.
-     *   Callers distinguish the two via the X-Quota-Scope response header.
+     * - Expired is 410, not 503: the contract is to re-resolve with a fresh
+     *   request id, and a 5xx would retry the same id into the same expired
+     *   cache entry.
+     * - RateLimited is 429 even for an exhausted daily API quota, which is a
+     *   retryable wait rather than a fault. Callers tell the two apart via the
+     *   X-Quota-Scope header.
      */
     public function httpStatus(): int
     {
@@ -82,10 +78,8 @@ enum ErrorCode: string
     }
 
     /**
-     * Whether a client is expected to retry this condition.
-     *
-     * Derived from the status rather than listed separately, so the two can
-     * never drift apart.
+     * Derived from the status rather than listed separately, so the two cannot
+     * drift apart.
      */
     public function isRetryable(): bool
     {
@@ -95,8 +89,8 @@ enum ErrorCode: string
     }
 
     /**
-     * Default client-facing message. Deliberately free of internal detail:
-     * stderr, binary versions, and upstream URLs never reach a consumer.
+     * Default client-facing message, free of internal detail: stderr, binary
+     * versions and upstream URLs never reach a consumer.
      */
     public function message(): string
     {

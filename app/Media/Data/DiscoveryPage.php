@@ -14,11 +14,8 @@ final readonly class DiscoveryPage
     ) {}
 
     /**
-     * Applied after caching, never before.
-     *
-     * The upstream `videoDuration=short` filter only means "under four
-     * minutes", which is far too coarse for a short-form feed, so exact
-     * durations are enforced here against the cached superset.
+     * Applied after caching, never before: upstream's `videoDuration=short`
+     * only means "under four minutes", far too coarse for a short-form feed.
      */
     public function withinDuration(?int $maxDurationMs): self
     {

@@ -3,11 +3,8 @@
 namespace App\Media\Data;
 
 /**
- * Lifecycle of one stored media asset.
- *
- * The states exist so the delivery endpoint can tell "not here yet, wait" from
- * "not here and never will be". Collapsing them would turn a download still in
- * flight into a permanent-looking failure a few seconds before it succeeds.
+ * Lifecycle of one stored media asset, so delivery can tell "not here yet,
+ * wait" from "not here and never will be".
  */
 enum AssetStatus: string
 {

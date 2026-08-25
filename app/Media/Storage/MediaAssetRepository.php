@@ -11,10 +11,9 @@ use Illuminate\Support\Facades\DB;
 /**
  * Every state transition an asset can make, in one place.
  *
- * The transitions are written as conditional updates rather than
- * read-then-write, because several workers and several web requests race on the
- * same row by design. A lost race has to be a no-op, not a second download of
- * the same file.
+ * Written as conditional updates rather than read-then-write: several workers
+ * and web requests race on the same row by design, and a lost race has to be a
+ * no-op rather than a second download of the same file.
  */
 final class MediaAssetRepository
 {
@@ -26,10 +25,9 @@ final class MediaAssetRepository
     /**
      * Get the row for this variant, creating it as pending if absent.
      *
-     * Metadata is refreshed on every resolve *except* once the asset is stored.
-     * A stored row describes a file that actually exists, and its recorded size
-     * and dimensions have to keep describing that file rather than whatever the
-     * extractor reported most recently.
+     * Metadata is refreshed on every resolve *except* once stored: a stored row
+     * describes a file that exists, and its size and dimensions must keep
+     * describing that file rather than the latest extractor report.
      *
      * @param  array<string, mixed>  $attributes
      */
@@ -50,10 +48,8 @@ final class MediaAssetRepository
     /**
      * Atomically take ownership of a download.
      *
-     * Returns false when someone else already holds it, which is the signal for
-     * the caller to do nothing at all. A row left in `downloading` by a worker
-     * that died is reclaimable after `staleAfter`, otherwise a single crash
-     * would strand that video forever.
+     * False means someone else holds it and the caller should do nothing. A row
+     * left in `downloading` by a dead worker is reclaimable after `staleAfter`.
      */
     public function claim(MediaAsset $asset, int $maxAttempts, int $staleAfter): bool
     {
@@ -108,16 +104,12 @@ final class MediaAssetRepository
     }
 
     /**
-     * Record that somebody actually wanted this file.
+     * Record that somebody wanted this file: a popularity signal for retention,
+     * not a meter (a local-disk response answers each byte-range separately).
      *
-     * The delivery count is always incremented; the access stamp is throttled.
-     * Both are written without touching `updated_at`, which is the heartbeat
-     * `claim()` uses to detect a dead worker: bumping it here would make a
-     * genuinely stranded download look alive and block its reclaim.
-     *
-     * The count is deliveries, not downloads: a local-disk response answers
-     * each byte-range request separately, while a bucket redirect is one hit
-     * per download. It is a popularity signal for retention, not a meter.
+     * Written without touching `updated_at`, the heartbeat `claim()` uses to
+     * detect a dead worker: bumping it would make a stranded download look alive
+     * and block its reclaim.
      */
     public function touchAccess(MediaAsset $asset, int $throttle = 3600): void
     {
@@ -135,9 +127,8 @@ final class MediaAssetRepository
     /**
      * Whether any other row still points at this file.
      *
-     * Pruning has to ask, because `path` is shared: a 720p and a 1080p variant
-     * of the same YouTube video both land on itag 18 and reference one object.
-     * Deleting the file with the first row would break the second.
+     * `path` is shared: a 720p and a 1080p variant both land on itag 18, so
+     * deleting the file with the first row would break the second.
      */
     public function pathIsShared(MediaAsset $asset): bool
     {

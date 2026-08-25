@@ -1,5 +1,6 @@
 <?php
 
+use App\Models\Tenant;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
@@ -49,7 +50,31 @@ expect()->extend('toBeOne', function () {
 |
 */
 
-function something()
+/**
+ * Authenticate the next request as a tenant.
+ *
+ * Laravel's auth guards cache the resolved user, and a test keeps one container
+ * alive across many requests, so without forgetting them the second call in a
+ * test is still attributed to the first caller. Real requests get a fresh
+ * container (and Octane flushes guards), so this restores production behaviour
+ * rather than papering over a bug.
+ *
+ * @param  array<int, string>  $abilities
+ */
+function actingAsTenant(Tenant $tenant, array $abilities = [], string $label = 'test'): TestCase
 {
-    // ..
+    return withTenantToken(
+        $tenant->createToken($label, $abilities === [] ? Tenant::abilities() : $abilities)->plainTextToken
+    );
+}
+
+/**
+ * The same, for a test that already holds the plaintext token — one revoking it
+ * and calling again, for instance.
+ */
+function withTenantToken(string $token): TestCase
+{
+    app('auth')->forgetGuards();
+
+    return test()->withToken($token);
 }

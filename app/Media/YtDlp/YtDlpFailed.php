@@ -5,11 +5,9 @@ namespace App\Media\YtDlp;
 use RuntimeException;
 
 /**
- * Raw extractor failure, before classification.
- *
- * Carries stderr so the classifier can map it to a client-facing code, and so
- * an unrecognised failure can be logged with enough detail to write a new
- * pattern for it.
+ * Raw extractor failure, before classification. Carries stderr so the classifier
+ * can map it, and so an unrecognised failure can be logged in enough detail to
+ * write a new pattern for it.
  */
 final class YtDlpFailed extends RuntimeException
 {

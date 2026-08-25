@@ -5,11 +5,9 @@ namespace App\Media\YtDlp;
 /**
  * Seam between the application and the extractor binary.
  *
- * Extraction runs in-process today. When datacenter bot checks force resolver
- * traffic onto differently-homed egress, an HTTP-backed implementation pointed
- * at a sidecar replaces this one: a config value and a new class, not a
- * rewrite. It is also the seam every test substitutes, which is what keeps the
- * suite off the network.
+ * Extraction runs in-process today; an HTTP-backed sidecar implementation can
+ * replace it without touching callers. Also the seam every test substitutes,
+ * which keeps the suite off the network.
  */
 interface YtDlpRunner
 {

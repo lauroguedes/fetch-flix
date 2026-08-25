@@ -16,14 +16,10 @@ use Throwable;
 /**
  * The YouTube Data API v3.
  *
- * Two calls, with wildly different costs:
- *   search.list  100 units, and the only expensive call in the system
- *   videos.list    1 unit for up to 50 ids
- *
- * So the shape here is deliberate: search once to get ids, then hydrate the
- * whole page's durations in a single 1-unit call. search.list returns no
- * duration and no dimensions at all, which is why the second call is not
- * optional.
+ * Two calls with wildly different costs: search.list at 100 units, videos.list
+ * at 1 unit for up to 50 ids. So: search once for ids, then hydrate the whole
+ * page's durations in a single 1-unit call. search.list returns no duration and
+ * no dimensions at all, which is why the second call is not optional.
  */
 final class DataApiClient
 {
@@ -31,6 +27,7 @@ final class DataApiClient
 
     public function __construct(
         private readonly QuotaGuard $quota,
+        private readonly YouTubeUrlParser $urls,
     ) {}
 
     public function search(Tenant $tenant, DiscoveryQuery $query): DiscoveryPage
@@ -43,8 +40,8 @@ final class DataApiClient
             'part' => 'snippet',
             'type' => 'video',
             'q' => $query->normalisedTerm(),
-            // Coarse (under four minutes) but it is the only duration filter
-            // the search endpoint offers. Exact filtering happens downstream.
+            // Coarse (under four minutes), the only filter search offers.
+            // Exact filtering happens downstream.
             'videoDuration' => 'short',
             'maxResults' => (int) config('media.discovery.page_size', 50),
             'safeSearch' => 'moderate',
@@ -54,8 +51,11 @@ final class DataApiClient
 
         $items = is_array($response['items'] ?? null) ? $response['items'] : [];
 
-        $cards = [];
-        $ids = [];
+        // Snippets are held rather than turned into cards straight away:
+        // search.list carries no duration, so the ids have to make the
+        // videos.list round trip before a card is complete.
+        /** @var array<int, array{id: string, snippet: array<string, mixed>}> $found */
+        $found = [];
 
         foreach ($items as $item) {
             $id = $item['id']['videoId'] ?? null;
@@ -64,20 +64,13 @@ final class DataApiClient
                 continue;
             }
 
-            $snippet = is_array($item['snippet'] ?? null) ? $item['snippet'] : [];
-            $ids[] = $id;
-
-            $cards[$id] = new VideoCard(
-                id: $id,
-                title: $this->decode($snippet['title'] ?? ''),
-                channel: $this->decode($snippet['channelTitle'] ?? ''),
-                // Filled by the videos.list call below.
-                durationMs: null,
-                thumbnailUrl: $this->bestThumbnail($snippet),
-                width: 0,
-                height: 0,
-            );
+            $found[] = [
+                'id' => $id,
+                'snippet' => is_array($item['snippet'] ?? null) ? $item['snippet'] : [],
+            ];
         }
+
+        $ids = array_column($found, 'id');
 
         $durations = $ids === [] ? [] : $this->quota->spend(
             $tenant,
@@ -85,30 +78,35 @@ final class DataApiClient
             fn () => $this->durations($ids)
         );
 
-        $hydrated = [];
+        $cards = [];
 
-        foreach ($cards as $id => $card) {
-            $hydrated[] = new VideoCard(
-                id: $card->id,
-                title: $card->title,
-                channel: $card->channel,
+        foreach ($found as ['id' => $id, 'snippet' => $snippet]) {
+            $cards[] = new VideoCard(
+                id: $id,
+                title: $this->decode($snippet['title'] ?? ''),
+                channel: $this->decode($snippet['channelTitle'] ?? ''),
                 durationMs: $durations[$id] ?? null,
-                thumbnailUrl: $card->thumbnailUrl,
-                width: $card->width,
-                height: $card->height,
+                thumbnailUrl: $this->bestThumbnail($snippet),
+                // Measured downstream by the DimensionResolver: neither Data
+                // API call reports a size.
+                width: 0,
+                height: 0,
+                provider: 'youtube',
+                // Stated here, by the one class that knows both halves of the
+                // answer, so no later layer has to reconstruct it.
+                url: $this->urls->watchUrl($id),
             );
         }
 
         return new DiscoveryPage(
-            videos: $hydrated,
+            videos: $cards,
             nextPageToken: is_string($response['nextPageToken'] ?? null) ? $response['nextPageToken'] : null,
             quotaUnitsSpent: $searchCost + ($ids === [] ? 0 : $videosCost),
         );
     }
 
     /**
-     * One unit for up to 50 ids, so a full page's durations cost the same as a
-     * single lookup.
+     * One unit for up to 50 ids, so a full page costs the same as one lookup.
      *
      * @param  array<int, string>  $ids
      * @return array<string, int>
@@ -139,10 +137,9 @@ final class DataApiClient
     }
 
     /**
-     * contentDetails.duration is an ISO-8601 duration such as PT1M33S.
-     *
-     * Live and upcoming broadcasts report P0D, which is a real zero rather than
-     * a parse failure, so it is returned as 0 and filtered by callers.
+     * contentDetails.duration is ISO-8601, such as PT1M33S. Live and upcoming
+     * broadcasts report P0D, a real zero rather than a parse failure, so it is
+     * returned as 0 and filtered by callers.
      */
     public static function isoDurationToMs(string $iso): ?int
     {
@@ -169,8 +166,7 @@ final class DataApiClient
         $key = config('media.discovery.youtube_api_key');
 
         if (! is_string($key) || $key === '') {
-            // A missing key is an operator error, not a client error, so it must
-            // not look like a permanent problem with the caller's request.
+            // Operator error, not client error: must not look permanent.
             throw ApiException::resolverUnavailable(
                 retryAfter: 30,
                 message: 'Discovery is not configured.',
@@ -191,9 +187,8 @@ final class DataApiClient
         }
 
         if ($response->status() === 403) {
-            // Google returns 403 for both quota exhaustion and a bad key. Only
-            // the former is worth retrying, and the reason string is the only
-            // thing that distinguishes them.
+            // Google returns 403 for both quota exhaustion and a bad key, and
+            // only the reason string tells them apart. Only the first retries.
             $reason = (string) ($response->json('error.errors.0.reason') ?? '');
 
             if (str_contains($reason, 'quota')) {
@@ -244,8 +239,8 @@ final class DataApiClient
 
     private function decode(mixed $value): string
     {
-        // Snippet text arrives HTML-escaped (&amp;, &#39;). Clients render it as
-        // plain text, so it is decoded once here rather than in every consumer.
+        // Snippet text arrives HTML-escaped (&amp;, &#39;) and clients render
+        // plain text, so it is decoded once here.
         return is_string($value)
             ? html_entity_decode($value, ENT_QUOTES | ENT_HTML5, 'UTF-8')
             : '';

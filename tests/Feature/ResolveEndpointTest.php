@@ -13,24 +13,17 @@ use Tests\Support\FakeYtDlpRunner;
  */
 function resolveAs(Tenant $tenant, array $overrides = [], array $headers = []): TestResponse
 {
-    // Laravel's auth guards cache the resolved user, and a test keeps one
-    // container alive across many requests, so without this the second call in
-    // a test is still attributed to the first caller. Real requests get a fresh
-    // container (and Octane flushes guards), so this restores production
-    // behaviour rather than papering over a bug.
-    app('auth')->forgetGuards();
-
-    $token = $tenant->createToken('test', [Tenant::ABILITY_RESOLVE])->plainTextToken;
-
     $payload = array_replace([
         'url' => 'https://www.youtube.com/watch?v=dQw4w9WgXcQ',
         'prefer' => 'progressive',
         'max_height' => 720,
         'audio_only' => false,
-        'client' => ['platform' => 'ios', 'app_version' => '1.4.2', 'api_version' => 'v1'],
     ], $overrides);
 
-    return test()->withToken($token)->postJson('/api/v1/resolve', $payload, $headers);
+    $headers = array_replace(['X-Client' => 'ios/1.4.2'], $headers);
+
+    return actingAsTenant($tenant, [Tenant::ABILITY_RESOLVE])
+        ->postJson('/api/v1/resolve', $payload, $headers);
 }
 
 function fakeRunner(FakeYtDlpRunner $runner): FakeYtDlpRunner
@@ -99,33 +92,6 @@ it('returns 200 with truthful dimensions when it has to degrade', function () {
         ->assertJsonPath('media.requested_height', 720);
 });
 
-it('passes cdn headers through verbatim in passthrough mode', function () {
-    // Only meaningful when the client downloads from the provider. Under
-    // storage delivery it downloads from us and there is nothing to pass.
-    config()->set('media.delivery', 'passthrough');
-    fakeRunner(FakeYtDlpRunner::withFixture('progressive-only'));
-
-    $response = resolveAs(Tenant::factory()->create(), ['max_height' => 360]);
-
-    // Some CDNs 403 without these, and the client feeds them straight into
-    // URLSession.
-    $headers = $response->json('media.headers');
-
-    expect($headers)->toHaveKey('User-Agent')
-        ->and($headers['User-Agent'])->toContain('Mozilla/5.0');
-});
-
-it('returns an ISO-8601 expiry parsed from the stream url in passthrough mode', function () {
-    config()->set('media.delivery', 'passthrough');
-    fakeRunner(FakeYtDlpRunner::withFixture('progressive-only'));
-
-    // Fixture urls carry expire=2051222400 (2035-01-01Z); the advertised value
-    // is pulled back by the 120s safety margin.
-    resolveAs(Tenant::factory()->create(), ['max_height' => 360])
-        ->assertOk()
-        ->assertJsonPath('media.expires_at', '2034-12-31T23:58:00Z');
-});
-
 it('resolves audio only when asked', function () {
     fakeRunner(FakeYtDlpRunner::withFixture('standard'));
 
@@ -190,16 +156,30 @@ it('rejects a prefer value it cannot honour', function () {
         ->assertJsonPath('code', 'invalid_request');
 });
 
-it('requires the client block', function () {
+it('resolves from a url alone', function () {
+    // The whole contract: everything else has a default. `prefer` is absent on
+    // purpose, and progressive is what it means.
     fakeRunner(FakeYtDlpRunner::withFixture('standard'));
 
     $tenant = Tenant::factory()->create();
     $token = $tenant->createToken('t', [Tenant::ABILITY_RESOLVE])->plainTextToken;
 
-    $this->withToken($token)->postJson('/api/v1/resolve', [
-        'url' => 'https://youtu.be/dQw4w9WgXcQ',
-        'prefer' => 'progressive',
-    ])->assertStatus(422)->assertJsonPath('code', 'invalid_request');
+    $this->withToken($token)
+        ->postJson('/api/v1/resolve', ['url' => 'https://youtu.be/dQw4w9WgXcQ'])
+        ->assertOk()
+        ->assertJsonPath('status', 'ok')
+        ->assertJsonPath('media.has_video', true)
+        ->assertJsonPath('media.has_audio', true);
+});
+
+it('still rejects a prefer value it does not implement', function () {
+    // Optional, but not ignored: a client asking for adaptive must be told it
+    // does not exist rather than silently handed progressive.
+    fakeRunner(FakeYtDlpRunner::withFixture('standard'));
+
+    resolveAs(Tenant::factory()->create(), ['prefer' => 'adaptive'])
+        ->assertStatus(422)
+        ->assertJsonPath('code', 'invalid_request');
 });
 
 it('runs extraction once for a repeated request id', function () {
@@ -260,8 +240,6 @@ it('requires the resolve ability', function () {
 
     $this->withToken($token)->postJson('/api/v1/resolve', [
         'url' => 'https://youtu.be/dQw4w9WgXcQ',
-        'prefer' => 'progressive',
-        'client' => ['platform' => 'ios', 'app_version' => '1', 'api_version' => 'v1'],
     ])->assertStatus(403)->assertJsonPath('code', 'unauthorized');
 });
 
