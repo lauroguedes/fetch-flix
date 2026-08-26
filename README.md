@@ -9,11 +9,14 @@ An API that turns a video URL into one downloadable file, finds videos worth dow
 
 Three things, and nothing else: **resolve**, **discover**, **stream**.
 
+> [!NOTE]
+> **YouTube is the only provider supported today.** TikTok and Instagram are the planned next ones. The provider layer is built for it, so adding them changes nothing in the API contract.
+
 ---
 
 ## Table of Contents
 
-- [Why it works this way](#why-it-works-this-way)
+- [Why I built this](#why-i-built-this)
 - [Requirements](#requirements)
 - [Installation](#installation)
 - [Configuration](#configuration)
@@ -34,13 +37,13 @@ Three things, and nothing else: **resolve**, **discover**, **stream**.
 
 ---
 
-## Why it works this way
+## Why I built this
 
-Two decisions explain most of the code, and both were forced rather than chosen.
+I kept needing videos from YouTube, TikTok and Instagram as raw material for side projects: a clip to cut into a demo, a reference to study, footage to feed into something else. Every time it meant hunting for a sketchy download site, or gluing together a one-off script that broke the following week.
 
-**The service hosts the bytes.** A provider's stream URL is signed against the IP address that extracted it. A server resolves, a phone on a different network downloads, and the CDN answers `403`. No header and no retry fixes that. So `/resolve` downloads the file to our own disk and hands back a signed URL of ours, which any address can fetch. That is a real change in posture — the service redistributes media rather than merely locating it — and it is why retention is enforced on a schedule.
+So I built the thing I wanted: a small API I can call from any project. Give it a URL, get back a file I can actually download. YouTube came first because it is the source I reach for most and the hardest one to get right; TikTok and Instagram are next.
 
-**Resolution is synchronous, on a 12-second budget.** The client calls `/resolve` from a blocking runloop and has no polling branch, so the response has to carry usable media. Everything in the resolve path exists to stay inside that ceiling: a shared cross-tenant cache, a single-flight lock, a hard deadline on the extractor, and a queued fallback that finishes the work anyway when the deadline is missed, so the client's retry lands on a warm cache.
+The other half of the reason is that I wanted to see the flow up close. Extracting a media URL, dealing with signed CDN links that expire or refuse the wrong IP, caching, keeping a synchronous request inside a sane time budget, storing the bytes and expiring them again. None of that is complicated in isolation, and all of it is more interesting than it looks once the pieces have to work together. This project is where I learned it by building it.
 
 ## Requirements
 
@@ -69,10 +72,10 @@ composer setup   # install, .env, key:generate, migrate, npm install, npm run bu
 Then start the app and its workers:
 
 ```bash
-composer dev
+php artisan dev
 ```
 
-`composer dev` runs the server, logs, Vite, and a queue listener bound to the queues this service actually uses (`resolve`, `downloads`). The framework default listens only on `default`, which would silently ignore every job dispatched here — resolves would succeed while downloads never became available.
+`php artisan dev` runs the server, logs, Vite, and a queue listener in one place. The listener is a replacement, not the framework default: it is bound to the queues this service actually uses (`resolve`, `downloads`). The default listens only on `default`, which would silently ignore every job dispatched here, so resolves would succeed while downloads never became available. Run `php artisan dev:list` to see the processes it starts.
 
 Create a tenant and issue a token:
 
@@ -105,10 +108,10 @@ Everything media-related lives in [`config/media.php`](config/media.php), which 
 | `TRUSTED_PROXIES` | `127.0.0.1,::1` | Which hops may set `X-Forwarded-*`. See below. |
 
 > [!IMPORTANT]
-> `TRUSTED_PROXIES` matters more than it looks. `/stream` and `/health` are unauthenticated, so their rate limits are keyed by client address — and a trusted `X-Forwarded-For` is a limit anyone can rotate past, on an endpoint that can hold a worker for twenty seconds per request. The default covers nginx on the same host, which is the Forge layout. Put a CDN's ranges here if you add one, and only use `*` if the application is genuinely unreachable except through a proxy.
+> `TRUSTED_PROXIES` matters more than it looks. `/stream` and `/health` are unauthenticated, so their rate limits are keyed by client address, and a trusted `X-Forwarded-For` is a limit anyone can rotate past, on an endpoint that can hold a worker for twenty seconds per request. The default covers nginx on the same host, which is the Forge layout. Put a CDN's ranges here if you add one, and only use `*` if the application is genuinely unreachable except through a proxy.
 
 > [!WARNING]
-> `YT_DLP_PLAYER_CLIENTS` is pinned because the unpinned default does not work: it extracts successfully and then `403`s on every download — a failure a resolve-only health check would call healthy. Two clients are listed so one breaking degrades to the other instead of to an outage. Re-validate with `php artisan test --group=network` before changing it.
+> `YT_DLP_PLAYER_CLIENTS` is pinned because the unpinned default does not work: it extracts successfully and then `403`s on every download, a failure a resolve-only health check would call healthy. Two clients are listed so one breaking degrades to the other instead of to an outage. Re-validate with `php artisan test --group=network` before changing it.
 
 ### Per-tenant limits
 
@@ -120,9 +123,9 @@ Base path: `/api/v1`. All request and response bodies are JSON.
 
 ### Authentication
 
-Bearer tokens, issued by an operator — there is no self-serve signup. That is deliberate: restricting issuance to someone with shell access is the cheapest reduction in abuse and legal exposure there is.
+Bearer tokens, issued by an operator. There is no self-serve signup. That is deliberate: restricting issuance to someone with shell access is the cheapest reduction in abuse and legal exposure there is.
 
-A token belongs to a **tenant** — a consuming application, not a person. Run the command with no arguments and it walks you through registering one and scoping its token:
+A token belongs to a **tenant**, a consuming application, not a person. Run the command with no arguments and it walks you through registering one and scoping its token:
 
 ```bash
 php artisan tenant:token
@@ -166,7 +169,7 @@ php artisan tenant:suspend acme      # 403 on the next request
 php artisan tenant:activate acme     # the same tokens work again, unchanged
 ```
 
-**`tenant:revoke`** is the permanent one, and the only answer to a leaked credential. Deleting the row ends access on the very next request — Sanctum looks the token up each time.
+**`tenant:revoke`** is the permanent one, and the only answer to a leaked credential. Deleting the row ends access on the very next request, since Sanctum looks the token up each time.
 
 ```bash
 php artisan tenant:revoke                            # guided: pick from a table of tokens
@@ -177,9 +180,9 @@ php artisan tenant:revoke acme --all                 # every token this tenant h
 Both confirm before acting when run in a terminal; pass `--no-interaction` in a script. The guided flow for `tenant:revoke` lists each token with **when it was last used**, which is what tells a dormant token from the one currently in production.
 
 > [!NOTE]
-> `sanctum:prune-expired` is **not** revocation. It deletes tokens that have already expired — precisely the set that is no longer dangerous. It is housekeeping, and it runs daily on its own.
+> `sanctum:prune-expired` is **not** revocation. It deletes tokens that have already expired, precisely the set that is no longer dangerous. It is housekeeping, and it runs daily on its own.
 
-The command prints the token once — it is a hash in the database and cannot be recovered afterwards. Send it as `Authorization: Bearer <token>`, or paste it into the **Authorize** box at [`/docs/api`](#interactive-documentation) to try the endpoints from the browser.
+The command prints the token once. It is stored as a hash and cannot be recovered afterwards. Send it as `Authorization: Bearer <token>`, or paste it into the **Authorize** box at [`/docs/api`](#interactive-documentation) to try the endpoints from the browser.
 
 An expired, revoked, or under-scoped token answers `403`, never `401`.
 
@@ -193,7 +196,7 @@ X-Request-Id: 6f1c2b9e-1f2a-4c8f-9a3e-1d0e5b7c2a11
 X-Client: ios/1.4.0
 ```
 
-`X-Request-Id` is optional and echoed back. **Reuse the same value across your own retries of one logical action** — a repeated id replays the stored response instead of paying for a second extraction.
+`X-Request-Id` is optional and echoed back. **Reuse the same value across your own retries of one logical action.** A repeated id replays the stored response instead of paying for a second extraction.
 
 `X-Client` is `<platform>/<app version>`, telemetry only. It never changes behaviour, but it is what answers "is this every consumer, or one bad build?" during an incident.
 
@@ -215,10 +218,10 @@ curl -X POST https://your-host/api/v1/resolve \
 | Field | Required | Notes |
 |---|---|---|
 | `url` | **yes** | Watch, `youtu.be`, Shorts, embed, or live URL. |
-| `max_height` | no | Ceiling, not an exact request. `360`, `480`, `720`, or `1080`; defaults to `720`. See the note below — today every value resolves to 360p. |
+| `max_height` | no | Ceiling, not an exact request. `360`, `480`, `720`, or `1080`; defaults to `720`. See the note below: today every value resolves to 360p. |
 | `max_duration_ms` | no | Milliseconds (`60000` = 1 min). Refuses longer media with a `422` instead of downloading it. Unset means no limit from you; the tenant's own ceiling still applies. |
 | `audio_only` | no | Returns an audio-only stream. Defaults to `false`. |
-| `prefer` | no | Defaults to `progressive`, which is also the only value implemented — the client cannot merge separate DASH audio and video. Sending anything else is a `422` rather than a silent fallback, so a future `adaptive` mode stays an additive change. |
+| `prefer` | no | Defaults to `progressive`, which is also the only value implemented, since the client cannot merge separate DASH audio and video. Sending anything else is a `422` rather than a silent fallback, so a future `adaptive` mode stays an additive change. |
 
 ```json
 {
@@ -248,7 +251,7 @@ curl -X POST https://your-host/api/v1/resolve \
 ```
 
 > [!NOTE]
-> **`degraded: true` is normal, not an error — and with YouTube it is currently the rule.** Every rendition above 360p is published as HLS, which this API deliberately does not serve, so itag 18 at 360p is the only progressive format left. That makes `max_height` effectively inert today: `360` reports `degraded: false`, and `480`, `720` and `1080` all return the same 360p file with `degraded: true` and `requested_height` echoed back. The values stay accepted so the ceiling still means something if a taller progressive format returns or another provider is added. Read `media.width` and `media.height` for what you actually got.
+> **`degraded: true` is normal, not an error, and with YouTube it is currently the rule.** Every rendition above 360p is published as HLS, which this API deliberately does not serve, so itag 18 at 360p is the only progressive format left. That makes `max_height` effectively inert today: `360` reports `degraded: false`, and `480`, `720` and `1080` all return the same 360p file with `degraded: true` and `requested_height` echoed back. The values stay accepted so the ceiling still means something if a taller progressive format returns or another provider is added. Read `media.width` and `media.height` for what you actually got.
 
 `media.url` points back at this service and needs no headers. The first caller for a given video may wait briefly at `/stream` while the download completes; every later caller, across every tenant, is served from disk.
 
@@ -268,7 +271,7 @@ curl -X POST https://your-host/api/v1/discover \
 | `kind` | yes | `search` or `category`. No default feed. |
 | `query` | if `search` | 2–100 characters. Whitespace normalised before caching; word order preserved because it changes ranking. |
 | `category` | if `category` | A slug from `GET /api/v1/categories`. |
-| `max_duration_ms` | no | Milliseconds. **Defaults to `180000` (3 minutes)** — omitting it does not mean "no limit". Send `null` to lift it. |
+| `max_duration_ms` | no | Milliseconds. **Defaults to `180000` (3 minutes)**; omitting it does not mean "no limit". Send `null` to lift it. |
 | `page_token` | no | The `next_page_token` from a previous response, unchanged. |
 
 ```json
@@ -290,12 +293,12 @@ curl -X POST https://your-host/api/v1/discover \
 }
 ```
 
-Pass `url` straight to `POST /api/v1/resolve`. It is there so a consumer never has to know how to turn a provider id back into a URL — that coupling would break the day a second provider is added.
+Pass `url` straight to `POST /api/v1/resolve`. It is there so a consumer never has to know how to turn a provider id back into a URL, and that coupling would break the day a second provider is added.
 
 `width` and `height` are **never null**. Consumers size a player frame before any media loads, so a missing dimension would render every portrait clip into a landscape box. They come from a fallback chain that always terminates in a configured default.
 
 > [!TIP]
-> A search costs **100 quota units** against a budget shared by every consumer of the service — roughly 100 searches per day for the whole project. Results are cached for 6 hours and served stale for up to 24 while refreshing in the background, so a cache hit is free. Prefer categories where you can: they are warmed off-peak from a reserved budget.
+> A search costs **100 quota units** against a budget shared by every consumer of the service, roughly 100 searches per day for the whole project. Results are cached for 6 hours and served stale for up to 24 while refreshing in the background, so a cache hit is free. Prefer categories where you can: they are warmed off-peak from a reserved budget.
 
 ### GET /api/v1/categories
 
@@ -314,13 +317,13 @@ curl https://your-host/api/v1/categories -H "Authorization: Bearer $TOKEN"
 }
 ```
 
-Costs no discovery quota and changes rarely — fetch it once at startup rather than before every discover call. Requires the `discover` ability, since the list is useful for nothing else. Retired categories are never listed, because advertising a slug that `/discover` would reject is worse than listing nothing.
+Costs no discovery quota and changes rarely, so fetch it once at startup rather than before every discover call. Requires the `discover` ability, since the list is useful for nothing else. Retired categories are never listed, because advertising a slug that `/discover` would reject is worse than listing nothing.
 
 ### GET /api/v1/stream/{asset}
 
-Serves the file. **Unauthenticated by design** — the signature in the URL *is* the credential, because the client hands this URL to a plain downloader that sends no headers of its own.
+Serves the file. **Unauthenticated by design**: the signature in the URL *is* the credential, because the client hands this URL to a plain downloader that sends no headers of its own.
 
-**Do not build this URL.** Take `media.url` from a `/resolve` response and use it exactly as given: `expires` and `signature` are computed by this service, and the signature is the only credential. For the same reason it cannot be exercised from the interactive docs page — "Try it" sends no valid signature and answers `403`.
+**Do not build this URL.** Take `media.url` from a `/resolve` response and use it exactly as given: `expires` and `signature` are computed by this service, and the signature is the only credential. For the same reason it cannot be exercised from the interactive docs page: "Try it" sends no valid signature and answers `403`.
 
 A local disk is streamed with byte-range support; a remote bucket gets a `302` to a short-lived pre-signed URL so the media never passes through the application. A `410` means the link expired and you should resolve again; a `403` means the signature does not match.
 
@@ -337,7 +340,7 @@ Answers at two depths on one URL, so monitoring keeps a single endpoint.
 **With a valid tenant token** — adds `extractor.yt_dlp_version`, `checked_at`, `failure_code`, hourly breakage and bot-check counts, `discovery.quota_remaining`, and storage `driver`/`stored`/`pending`/`failed`/`bytes`.
 
 > [!NOTE]
-> The detail is withheld from anonymous callers deliberately. It fingerprints the deployment, and `quota_remaining` would let an outsider time an exhaustion attack against a budget shared by every consumer — then confirm it worked. Keeping the aggregate behind the token also keeps the public probe cheap to serve.
+> The detail is withheld from anonymous callers deliberately. It fingerprints the deployment, and `quota_remaining` would let an outsider time an exhaustion attack against a budget shared by every consumer, then confirm it worked. Keeping the aggregate behind the token also keeps the public probe cheap to serve.
 
 ### Errors
 
@@ -365,17 +368,17 @@ Every failure returns the same envelope:
 | `unauthorized` | 403 | No |
 | `region_blocked` | 451 | No |
 | `too_large` | 413 | No |
-| `expired` | 410 | No — **re-resolve instead** |
+| `expired` | 410 | No, **re-resolve instead** |
 | `rate_limited` | 429 | Yes, after `retry_after` |
 | `resolver_unavailable` | 503 | Yes |
 | `offline` | 502 | Yes |
 | `download_failed` | 502 | Yes |
 
-Two mappings are deliberate. `expired` is `410` rather than a `5xx` so a client re-resolves with a fresh request id instead of retrying the same id straight back into the same expired entry. And `rate_limited` is `429` even when the cause is an exhausted daily API quota, because "out of quota today" is a wait rather than a fault — the `X-Quota-Scope` header tells you whether you spent your own allowance or the whole project's.
+Two mappings are deliberate. `expired` is `410` rather than a `5xx` so a client re-resolves with a fresh request id instead of retrying the same id straight back into the same expired entry. And `rate_limited` is `429` even when the cause is an exhausted daily API quota, because "out of quota today" is a wait rather than a fault. The `X-Quota-Scope` header tells you whether you spent your own allowance or the whole project's.
 
 ## Interactive documentation
 
-[Scramble](https://scramble.dedoc.co/) generates an OpenAPI 3.1 spec from the code itself — the FormRequests, Resources, and types — so it cannot drift from the implementation.
+[Scramble](https://scramble.dedoc.co/) generates an OpenAPI 3.1 spec from the code itself (the FormRequests, Resources, and types), so it cannot drift from the implementation.
 
 | | |
 |---|---|
@@ -386,9 +389,17 @@ Two mappings are deliberate. `expired` is `410` rather than a `5xx` so a client 
 Paste a tenant token into the page's authorise box to exercise `/resolve`, `/discover` and `/categories` against a running instance. `/stream` is the one endpoint that cannot be tried from there: its credential is a signature this service computes, so the page has nothing valid to send and will answer `403`. Use the `media.url` a `/resolve` call returns instead.
 
 > [!NOTE]
-> Access is restricted to local environments by default. To expose it elsewhere, adjust `middleware` in [`config/scramble.php`](config/scramble.php) — and gate it, since it describes your entire API surface.
+> Access is restricted to local environments by default. To expose it elsewhere, adjust `middleware` in [`config/scramble.php`](config/scramble.php), and gate it, since it describes your entire API surface.
 
 ## Architecture
+
+Two constraints shape everything below. Both were forced from the outside rather than chosen.
+
+**The service stores the file itself, instead of handing back the provider's link.**
+A provider signs its stream URL against the IP that asked for it. Our server does the asking, so the link only works from our server. Hand it to a phone on another network and the CDN answers `403`, and no header or retry gets around it. So `/resolve` downloads the file to our own disk and returns a signed URL of ours, which works from anywhere. The trade-off: we now hold copies of other people's media, which is why retention and pruning are part of the design rather than an afterthought.
+
+**A resolve has to answer within 12 seconds.**
+Clients call `/resolve` and block on the answer, and there is no "come back later and poll" path, so the response must already carry something usable. Every piece of the resolve path exists to fit inside that ceiling: caching so most calls skip the work entirely, a lock so ten callers don't extract the same video ten times, a hard deadline on yt-dlp so a slow extraction can't hold the request open, and a queued fallback that finishes the job anyway when the deadline is missed, so the client's retry a moment later finds it already done.
 
 ```
 app/
@@ -415,7 +426,9 @@ app/
 
 Miss the deadline and the extraction is re-run on a queue, so the client's retry moments later hits a warm cache. Two writers, one envelope shape.
 
-**Provider extensibility.** Adding a provider means one class implementing `App\Media\Provider` and one entry in `config/media.php`. Nothing in the controllers changes.
+**Providers.** YouTube is the only one wired up today, registered under `providers` in [`config/media.php`](config/media.php) and covering URL parsing, the Data API, and oEmbed. TikTok and Instagram are on the roadmap.
+
+Adding one means a single class implementing `App\Media\Provider` and a single entry in that config. Nothing in the controllers, the resolve path, or the response shape changes, which is also why `/discover` returns a ready-to-use `url` instead of a bare provider id: callers never learn how to rebuild one, so a second provider stays invisible to them.
 
 ## Operations
 
@@ -450,7 +463,7 @@ The suite runs entirely offline: the extractor and the downloader are both subst
 1. Branch from `main`.
 2. Read [`.ai/rules/index.md`](.ai/rules/index.md) and follow the rule files whose globs match what you are touching. Conventions live in [`CLAUDE.md`](CLAUDE.md).
 3. Every change needs a test.
-4. Run `composer test` — CI runs the same command.
+4. Run `composer test`; CI runs the same command.
 5. Format with `vendor/bin/pint --dirty`.
 
 ## License
