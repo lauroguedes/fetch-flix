@@ -174,6 +174,20 @@ it('still applies the caller ceilings to a file it already holds', function () {
         ->assertJsonPath('code', 'too_large');
 });
 
+it('does not judge a stored audio-only file against the progressive floor', function () {
+    // The floor is about progressive video quality: extraction applies it on
+    // the progressive branch and never on the audio-only one, so a warm hit
+    // must not either. An audio stream has no height, and measuring it against
+    // a video floor would answer 200 cold and 422 warm for one request.
+    fakeRunner(FakeYtDlpRunner::withFixture('standard'));
+
+    $tenant = Tenant::factory()->create(['min_progressive_height' => 480]);
+
+    resolveAs($tenant, ['audio_only' => true])->assertOk();
+    cache()->clear();
+    resolveAs($tenant, ['audio_only' => true])->assertOk();
+});
+
 it('serves the url it just handed out', function () {
     // End to end: resolve, run the queued transfer, download from the URL in
     // the response with no headers and no token.

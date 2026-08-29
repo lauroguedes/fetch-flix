@@ -246,3 +246,34 @@ it('requires the resolve ability', function () {
 it('rejects an unauthenticated resolve', function () {
     $this->postJson('/api/v1/resolve', [])->assertStatus(403);
 });
+
+/*
+ * The shared cache is keyed on the work (provider, id, height, audio_only) and
+ * not on the ceilings, so an entry written by a permissive caller is offered to
+ * a stricter one. These pin that a warm hit is still judged against whoever is
+ * asking now.
+ */
+
+it('reapplies the duration ceiling to a warm shared cache entry', function () {
+    $runner = fakeRunner(FakeYtDlpRunner::withFixture('standard'));
+
+    // A generous caller warms the cross-tenant cache with a 213s video.
+    resolveAs(Tenant::factory()->create(), [], ['X-Request-Id' => 'generous'])->assertOk();
+
+    resolveAs(Tenant::factory()->create(['max_duration_ms' => 60000]), [], ['X-Request-Id' => 'capped'])
+        ->assertStatus(422)
+        ->assertJsonPath('code', 'too_long');
+
+    // Refused from the cache, not by paying for a second extraction.
+    expect($runner->calls)->toBe(1);
+});
+
+it('reapplies the size ceiling to a warm shared cache entry', function () {
+    fakeRunner(FakeYtDlpRunner::withFixture('standard'));
+
+    resolveAs(Tenant::factory()->create(), [], ['X-Request-Id' => 'generous'])->assertOk();
+
+    resolveAs(Tenant::factory()->create(['max_bytes' => 1_000_000]), [], ['X-Request-Id' => 'capped'])
+        ->assertStatus(413)
+        ->assertJsonPath('code', 'too_large');
+});

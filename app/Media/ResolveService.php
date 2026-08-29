@@ -32,6 +32,8 @@ final class ResolveService
         // Clients reuse X-Request-Id across retries, so replaying the stored
         // envelope saves a second expensive extraction for one user action.
         if ($replay = $this->readCached($dedupeKey)) {
+            LimitGuard::assert($request, $replay);
+
             return $replay;
         }
 
@@ -42,7 +44,14 @@ final class ResolveService
 
         // Shared across tenants: the same video at the same height is the same
         // extraction no matter who asks.
+        //
+        // The ceilings are not shared, and they are not in the fingerprint
+        // either, so the entry may have been written by a caller far more
+        // permissive than this one. Assert before remembering: a refused
+        // envelope must not be copied into this tenant's replay slot.
         if ($shared = $this->readCached($sharedKey)) {
+            LimitGuard::assert($request, $shared);
+
             $this->remember($dedupeKey, $shared, $this->dedupeTtl($shared));
 
             return $shared;
@@ -74,8 +83,11 @@ final class ResolveService
         }
 
         try {
-            // The holder of the lock may have finished while we were blocked.
+            // The holder of the lock may have finished while we were blocked,
+            // and its ceilings were its own.
             if ($shared = $this->readCached($sharedKey)) {
+                LimitGuard::assert($request, $shared);
+
                 $this->remember($dedupeKey, $shared, $this->dedupeTtl($shared));
 
                 return $shared;

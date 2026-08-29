@@ -22,3 +22,24 @@ header or retry fixes it — only serving the bytes ourselves does.
 So this service redistributes media rather than merely locating it. Retention
 (`media:prune`, `MEDIA_RETENTION_DAYS`) is enforced on a schedule partly
 because of that, and partly because storage is the one part with a bill.
+
+## Every path that answers without extracting must call LimitGuard
+`MediaRequest::fingerprint()` keys the shared cache on the work (provider, id,
+maxHeight, audioOnly) and deliberately not on the ceilings, so one entry is
+offered to callers with different limits. `MediaRequest::fromTenant()` folds the
+tenant's own policy (`max_duration_ms`, `max_bytes`, `min_progressive_height`)
+into those ceilings, so skipping them is a cross-tenant policy bypass, not just
+a looser response.
+
+Extraction enforces all three (duration in the provider, bytes and the height
+floor in `FormatSelector`). Every path that answers *without* extracting must
+call `LimitGuard::assert()`: both shared-cache reads and the request-id replay
+in `ResolveService`, and the warm hit in `AssetStore::cached()`. Assert before
+`remember()`, or a refused envelope lands in the caller's replay slot.
+
+Do not fix this by adding the ceilings to the fingerprint: that fragments the
+cache per distinct ceiling and throws away the sharing that makes it useful.
+
+The height floor is progressive-only in `LimitGuard`, matching `FormatSelector`,
+which never applies it on the audio-only branch. Applying it to an audio-only
+stream (height null) answers 200 cold and 422 warm for the same request.

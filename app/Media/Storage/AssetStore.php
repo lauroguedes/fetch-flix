@@ -2,11 +2,11 @@
 
 namespace App\Media\Storage;
 
-use App\Api\Exceptions\ApiException;
 use App\Media\Data\MediaRequest;
 use App\Media\Data\MediaStream;
 use App\Media\Data\ResolvedMedia;
 use App\Media\Jobs\DownloadMediaAsset;
+use App\Media\LimitGuard;
 use App\Models\MediaAsset;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\URL;
@@ -47,11 +47,14 @@ final class AssetStore
             return null;
         }
 
-        // The file is shared across tenants but the limits are not, so they are
-        // re-applied here.
-        $this->assertWithinLimits($asset, $request);
+        $envelope = $this->envelope($asset, $request);
 
-        return $this->envelope($asset, $request);
+        // The file is shared across tenants but the limits are not, so they are
+        // re-applied here. Same guard the cache hits in `ResolveService` use:
+        // one file, one set of rules, whichever path reached it.
+        LimitGuard::assert($request, $envelope);
+
+        return $envelope;
     }
 
     /**
@@ -171,28 +174,5 @@ final class AssetStore
                 formatId: $asset->format_id,
             ),
         );
-    }
-
-    /**
-     * Re-apply the caller's ceilings to a shared stored file.
-     */
-    private function assertWithinLimits(MediaAsset $asset, MediaRequest $request): void
-    {
-        if ($request->maxDurationMs !== null
-            && $asset->duration_ms !== null
-            && $asset->duration_ms > $request->maxDurationMs) {
-            throw ApiException::tooLong();
-        }
-
-        if ($request->maxBytes !== null && $asset->bytes !== null && $asset->bytes > $request->maxBytes) {
-            throw ApiException::tooLarge();
-        }
-
-        if ($request->minProgressiveHeight > 0
-            && ($asset->height ?? 0) < $request->minProgressiveHeight) {
-            throw ApiException::mediaMissing(
-                'No progressive stream meets the minimum acceptable quality.'
-            );
-        }
     }
 }
