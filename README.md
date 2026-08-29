@@ -311,8 +311,8 @@ curl https://your-host/api/v1/categories -H "Authorization: Bearer $TOKEN"
 ```json
 {
   "categories": [
-    { "slug": "trending", "label": "Trending" },
-    { "slug": "comedy", "label": "Comedy" }
+    { "slug": "howto", "label": "How-to" },
+    { "slug": "curiosities", "label": "Curiosities" }
   ]
 }
 ```
